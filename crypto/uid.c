@@ -10,7 +10,7 @@
 #include <openssl/crypto.h>
 #include <openssl/opensslconf.h>
 
-#if defined(__OpenBSD__) || (defined(__FreeBSD__) && __FreeBSD__ > 2) || defined(__DragonFly__)
+#if defined(__OpenBSD__) || (defined(__FreeBSD__) && __FreeBSD__ > 2)
 
 # include OPENSSL_UNISTD
 
@@ -19,7 +19,7 @@ int OPENSSL_issetugid(void)
     return issetugid();
 }
 
-#elif defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_VXWORKS) || defined(OPENSSL_SYS_UEFI)
+#elif defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_VXWORKS)
 
 int OPENSSL_issetugid(void)
 {

@@ -274,7 +274,8 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
-    OCB_BLOCK tmp;
+    OCB_BLOCK tmp1;
+    OCB_BLOCK tmp2;
 
     /* Calculate the number of blocks of AAD provided now, and so far */
     num_blocks = len / 16;
@@ -283,6 +284,7 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
     /* Loop through all full blocks of AAD */
     for (i = ctx->blocks_hashed + 1; i <= all_num_blocks; i++) {
         OCB_BLOCK *lookup;
+        OCB_BLOCK *aad_block;
 
         /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
         lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -290,13 +292,11 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
             return 0;
         ocb_block16_xor(&ctx->offset_aad, lookup, &ctx->offset_aad);
 
-        memcpy(tmp.c, aad, 16);
-        aad += 16;
-
         /* Sum_i = Sum_{i-1} xor ENCIPHER(K, A_i xor Offset_i) */
-        ocb_block16_xor(&ctx->offset_aad, &tmp, &tmp);
-        ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
-        ocb_block16_xor(&tmp, &ctx->sum, &ctx->sum);
+        aad_block = (OCB_BLOCK *)(aad + ((i - ctx->blocks_hashed - 1) * 16));
+        ocb_block16_xor_misaligned(&ctx->offset_aad, aad_block, &tmp1);
+        ctx->encrypt(tmp1.c, tmp2.c, ctx->keyenc);
+        ocb_block16_xor(&ctx->sum, &tmp2, &ctx->sum);
     }
 
     /*
@@ -310,14 +310,14 @@ int CRYPTO_ocb128_aad(OCB128_CONTEXT *ctx, const unsigned char *aad,
         ocb_block16_xor(&ctx->offset_aad, &ctx->l_star, &ctx->offset_aad);
 
         /* CipherInput = (A_* || 1 || zeros(127-bitlen(A_*))) xor Offset_* */
-        memset(tmp.c, 0, 16);
-        memcpy(tmp.c, aad, last_len);
-        tmp.c[last_len] = 0x80;
-        ocb_block16_xor(&ctx->offset_aad, &tmp, &tmp);
+        memset(&tmp1, 0, 16);
+        memcpy(&tmp1, aad + (num_blocks * 16), last_len);
+        ((unsigned char *)&tmp1)[last_len] = 0x80;
+        ocb_block16_xor(&ctx->offset_aad, &tmp1, &tmp2);
 
         /* Sum = Sum_m xor ENCIPHER(K, CipherInput) */
-        ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
-        ocb_block16_xor(&tmp, &ctx->sum, &ctx->sum);
+        ctx->encrypt(tmp2.c, tmp1.c, ctx->keyenc);
+        ocb_block16_xor(&ctx->sum, &tmp1, &ctx->sum);
     }
 
     ctx->blocks_hashed = all_num_blocks;
@@ -335,6 +335,9 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
+    OCB_BLOCK tmp1;
+    OCB_BLOCK tmp2;
+    OCB_BLOCK pad;
 
     /*
      * Calculate the number of blocks of data to be encrypted provided now, and
@@ -363,7 +366,8 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
         /* Loop through all full blocks to be encrypted */
         for (i = ctx->blocks_processed + 1; i <= all_num_blocks; i++) {
             OCB_BLOCK *lookup;
-            OCB_BLOCK tmp;
+            OCB_BLOCK *inblock;
+            OCB_BLOCK *outblock;
 
             /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
             lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -371,19 +375,16 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
                 return 0;
             ocb_block16_xor(&ctx->offset, lookup, &ctx->offset);
 
-            memcpy(tmp.c, in, 16);
-            in += 16;
-
-            /* Checksum_i = Checksum_{i-1} xor P_i */
-            ocb_block16_xor(&tmp, &ctx->checksum, &ctx->checksum);
-
             /* C_i = Offset_i xor ENCIPHER(K, P_i xor Offset_i) */
-            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
-            ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
-            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
-
-            memcpy(out, tmp.c, 16);
-            out += 16;
+            inblock =
+                (OCB_BLOCK *)(in + ((i - ctx->blocks_processed - 1) * 16));
+            ocb_block16_xor_misaligned(&ctx->offset, inblock, &tmp1);
+            /* Checksum_i = Checksum_{i-1} xor P_i */
+            ocb_block16_xor_misaligned(&ctx->checksum, inblock, &ctx->checksum);
+            ctx->encrypt(tmp1.c, tmp2.c, ctx->keyenc);
+            outblock =
+                (OCB_BLOCK *)(out + ((i - ctx->blocks_processed - 1) * 16));
+            ocb_block16_xor_misaligned(&ctx->offset, &tmp2, outblock);
         }
     }
 
@@ -394,8 +395,6 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
     last_len = len % 16;
 
     if (last_len > 0) {
-        OCB_BLOCK pad;
-
         /* Offset_* = Offset_m xor L_* */
         ocb_block16_xor(&ctx->offset, &ctx->l_star, &ctx->offset);
 
@@ -403,13 +402,14 @@ int CRYPTO_ocb128_encrypt(OCB128_CONTEXT *ctx,
         ctx->encrypt(ctx->offset.c, pad.c, ctx->keyenc);
 
         /* C_* = P_* xor Pad[1..bitlen(P_*)] */
-        ocb_block_xor(in, pad.c, last_len, out);
+        ocb_block_xor(in + (len / 16) * 16, (unsigned char *)&pad, last_len,
+                      out + (num_blocks * 16));
 
         /* Checksum_* = Checksum_m xor (P_* || 1 || zeros(127-bitlen(P_*))) */
-        memset(pad.c, 0, 16);           /* borrow pad */
-        memcpy(pad.c, in, last_len);
-        pad.c[last_len] = 0x80;
-        ocb_block16_xor(&pad, &ctx->checksum, &ctx->checksum);
+        memset(&tmp1, 0, 16);
+        memcpy(&tmp1, in + (len / 16) * 16, last_len);
+        ((unsigned char *)(&tmp1))[last_len] = 0x80;
+        ocb_block16_xor(&ctx->checksum, &tmp1, &ctx->checksum);
     }
 
     ctx->blocks_processed = all_num_blocks;
@@ -427,6 +427,9 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
 {
     u64 i, all_num_blocks;
     size_t num_blocks, last_len;
+    OCB_BLOCK tmp1;
+    OCB_BLOCK tmp2;
+    OCB_BLOCK pad;
 
     /*
      * Calculate the number of blocks of data to be decrypted provided now, and
@@ -452,10 +455,10 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
                     (size_t)ctx->blocks_processed + 1, ctx->offset.c,
                     (const unsigned char (*)[16])ctx->l, ctx->checksum.c);
     } else {
-        OCB_BLOCK tmp;
-
         /* Loop through all full blocks to be decrypted */
         for (i = ctx->blocks_processed + 1; i <= all_num_blocks; i++) {
+            OCB_BLOCK *inblock;
+            OCB_BLOCK *outblock;
 
             /* Offset_i = Offset_{i-1} xor L_{ntz(i)} */
             OCB_BLOCK *lookup = ocb_lookup_l(ctx, ocb_ntz(i));
@@ -463,19 +466,17 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
                 return 0;
             ocb_block16_xor(&ctx->offset, lookup, &ctx->offset);
 
-            memcpy(tmp.c, in, 16);
-            in += 16;
-
             /* P_i = Offset_i xor DECIPHER(K, C_i xor Offset_i) */
-            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
-            ctx->decrypt(tmp.c, tmp.c, ctx->keydec);
-            ocb_block16_xor(&ctx->offset, &tmp, &tmp);
+            inblock =
+                (OCB_BLOCK *)(in + ((i - ctx->blocks_processed - 1) * 16));
+            ocb_block16_xor_misaligned(&ctx->offset, inblock, &tmp1);
+            ctx->decrypt(tmp1.c, tmp2.c, ctx->keydec);
+            outblock =
+                (OCB_BLOCK *)(out + ((i - ctx->blocks_processed - 1) * 16));
+            ocb_block16_xor_misaligned(&ctx->offset, &tmp2, outblock);
 
             /* Checksum_i = Checksum_{i-1} xor P_i */
-            ocb_block16_xor(&tmp, &ctx->checksum, &ctx->checksum);
-
-            memcpy(out, tmp.c, 16);
-            out += 16;
+            ocb_block16_xor_misaligned(&ctx->checksum, outblock, &ctx->checksum);
         }
     }
 
@@ -486,8 +487,6 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
     last_len = len % 16;
 
     if (last_len > 0) {
-        OCB_BLOCK pad;
-
         /* Offset_* = Offset_m xor L_* */
         ocb_block16_xor(&ctx->offset, &ctx->l_star, &ctx->offset);
 
@@ -495,13 +494,14 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
         ctx->encrypt(ctx->offset.c, pad.c, ctx->keyenc);
 
         /* P_* = C_* xor Pad[1..bitlen(C_*)] */
-        ocb_block_xor(in, pad.c, last_len, out);
+        ocb_block_xor(in + (len / 16) * 16, (unsigned char *)&pad, last_len,
+                      out + (num_blocks * 16));
 
         /* Checksum_* = Checksum_m xor (P_* || 1 || zeros(127-bitlen(P_*))) */
-        memset(pad.c, 0, 16);           /* borrow pad */
-        memcpy(pad.c, out, last_len);
-        pad.c[last_len] = 0x80;
-        ocb_block16_xor(&pad, &ctx->checksum, &ctx->checksum);
+        memset(&tmp1, 0, 16);
+        memcpy(&tmp1, out + (len / 16) * 16, last_len);
+        ((unsigned char *)(&tmp1))[last_len] = 0x80;
+        ocb_block16_xor(&ctx->checksum, &tmp1, &ctx->checksum);
     }
 
     ctx->blocks_processed = all_num_blocks;
@@ -515,15 +515,15 @@ int CRYPTO_ocb128_decrypt(OCB128_CONTEXT *ctx,
 int CRYPTO_ocb128_finish(OCB128_CONTEXT *ctx, const unsigned char *tag,
                          size_t len)
 {
-    OCB_BLOCK tmp;
+    OCB_BLOCK tmp1, tmp2;
 
     /*
      * Tag = ENCIPHER(K, Checksum_* xor Offset_* xor L_$) xor HASH(K,A)
      */
-    ocb_block16_xor(&ctx->checksum, &ctx->offset, &tmp);
-    ocb_block16_xor(&ctx->l_dollar, &tmp, &tmp);
-    ctx->encrypt(tmp.c, tmp.c, ctx->keyenc);
-    ocb_block16_xor(&tmp, &ctx->sum, &ctx->tag);
+    ocb_block16_xor(&ctx->checksum, &ctx->offset, &tmp1);
+    ocb_block16_xor(&tmp1, &ctx->l_dollar, &tmp2);
+    ctx->encrypt(tmp2.c, tmp1.c, ctx->keyenc);
+    ocb_block16_xor(&tmp1, &ctx->sum, &ctx->tag);
 
     if (len > 16 || len < 1) {
         return -1;
@@ -549,7 +549,7 @@ int CRYPTO_ocb128_tag(OCB128_CONTEXT *ctx, unsigned char *tag, size_t len)
     CRYPTO_ocb128_finish(ctx, NULL, 0);
 
     /* Copy the tag into the supplied buffer */
-    memcpy(tag, ctx->tag.c, len);
+    memcpy(tag, &ctx->tag, len);
 
     return 1;
 }

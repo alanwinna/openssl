@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2008-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -8,7 +8,7 @@
  */
 
 #include <stdio.h>
-#include "internal/ctype.h"
+#include <ctype.h>
 #include "internal/cryptlib.h"
 #include <openssl/rand.h>
 #include <openssl/x509.h>
@@ -634,7 +634,7 @@ static STACK_OF(MIME_HEADER) *mime_parse_hdr(BIO *bio)
         return NULL;
     while ((len = BIO_gets(bio, linebuf, MAX_SMLEN)) > 0) {
         /* If whitespace at line start then continuation line */
-        if (mhdr && ossl_isspace(linebuf[0]))
+        if (mhdr && isspace((unsigned char)linebuf[0]))
             state = MIME_NAME;
         else
             state = MIME_START;
@@ -758,7 +758,7 @@ static char *strip_start(char *name)
             /* Else null string */
             return NULL;
         }
-        if (!ossl_isspace(c))
+        if (!isspace((unsigned char)c))
             return p;
     }
     return NULL;
@@ -779,7 +779,7 @@ static char *strip_end(char *name)
             *p = 0;
             return name;
         }
-        if (ossl_isspace(c))
+        if (isspace((unsigned char)c))
             *p = 0;
         else
             return name;
@@ -791,18 +791,29 @@ static MIME_HEADER *mime_hdr_new(const char *name, const char *value)
 {
     MIME_HEADER *mhdr = NULL;
     char *tmpname = NULL, *tmpval = NULL, *p;
+    int c;
 
     if (name) {
         if ((tmpname = OPENSSL_strdup(name)) == NULL)
             return NULL;
-        for (p = tmpname; *p; p++)
-            *p = ossl_tolower(*p);
+        for (p = tmpname; *p; p++) {
+            c = (unsigned char)*p;
+            if (isupper(c)) {
+                c = tolower(c);
+                *p = c;
+            }
+        }
     }
     if (value) {
         if ((tmpval = OPENSSL_strdup(value)) == NULL)
             goto err;
-        for (p = tmpval; *p; p++)
-            *p = ossl_tolower(*p);
+        for (p = tmpval; *p; p++) {
+            c = (unsigned char)*p;
+            if (isupper(c)) {
+                c = tolower(c);
+                *p = c;
+            }
+        }
     }
     mhdr = OPENSSL_malloc(sizeof(*mhdr));
     if (mhdr == NULL)
@@ -823,14 +834,19 @@ static MIME_HEADER *mime_hdr_new(const char *name, const char *value)
 static int mime_hdr_addparam(MIME_HEADER *mhdr, const char *name, const char *value)
 {
     char *tmpname = NULL, *tmpval = NULL, *p;
+    int c;
     MIME_PARAM *mparam = NULL;
-
     if (name) {
         tmpname = OPENSSL_strdup(name);
         if (!tmpname)
             goto err;
-        for (p = tmpname; *p; p++)
-            *p = ossl_tolower(*p);
+        for (p = tmpname; *p; p++) {
+            c = (unsigned char)*p;
+            if (isupper(c)) {
+                c = tolower(c);
+                *p = c;
+            }
+        }
     }
     if (value) {
         tmpval = OPENSSL_strdup(value);

@@ -374,19 +374,13 @@ static int dh_cmp_parameters(const EVP_PKEY *a, const EVP_PKEY *b)
 static int int_dh_bn_cpy(BIGNUM **dst, const BIGNUM *src)
 {
     BIGNUM *a;
-
-    /*
-     * If source is read only just copy the pointer, so
-     * we don't have to reallocate it.
-     */
-    if (src == NULL)
+    if (src) {
+        a = BN_dup(src);
+        if (!a)
+            return 0;
+    } else
         a = NULL;
-    else if (BN_get_flags(src, BN_FLG_STATIC_DATA)
-                && !BN_get_flags(src, BN_FLG_MALLOCED))
-        a = (BIGNUM *)src;
-    else if ((a = BN_dup(src)) == NULL)
-        return 0;
-    BN_clear_free(*dst);
+    BN_free(*dst);
     *dst = a;
     return 1;
 }

@@ -8,7 +8,7 @@
 
 
 # require 'x86asm.pl';
-# &asm_init(<flavor>[,$i386only]);
+# &asm_init(<flavor>,"des-586.pl"[,$i386only]);
 # &function_begin("foo");
 # ...
 # &function_end("foo");
@@ -259,8 +259,9 @@ sub ::asm_finish
 }
 
 sub ::asm_init
-{ my ($type,$cpu)=@_;
+{ my ($type,$fn,$cpu)=@_;
 
+    $filename=$fn;
     $i386=$cpu;
 
     $elf=$cpp=$coff=$aout=$macosx=$win32=$netware=$mwerks=$android=0;
@@ -300,7 +301,8 @@ EOF
     $pic=0;
     for (@ARGV) { $pic=1 if (/\-[fK]PIC/i); }
 
-    &file();
+    $filename =~ s/\.pl$//;
+    &file($filename);
 }
 
 sub ::hidden {}

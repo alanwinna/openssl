@@ -1,7 +1,7 @@
 .explicit
 .text
 .ident	"ia64.S, Version 2.1"
-.ident	"IA-64 ISA artwork by Andy Polyakov <appro@openssl.org>"
+.ident	"IA-64 ISA artwork by Andy Polyakov <appro@fy.chalmers.se>"
 
 // Copyright 2001-2016 The OpenSSL Project Authors. All Rights Reserved.
 //
@@ -12,7 +12,7 @@
 
 //
 // ====================================================================
-// Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
+// Written by Andy Polyakov <appro@fy.chalmers.se> for the OpenSSL
 // project.
 //
 // Rights for redistribution and usage in source and binary forms are
@@ -1529,8 +1529,9 @@ bn_div_words:
 // output:	f8 = (int)(a/b)
 // clobbered:	f8,f9,f10,f11,pred
 pred=p15
-// This snippet is based on text found in the "Divide, Square
-// Root and Remainder" section at
+// One can argue that this snippet is copyrighted to Intel
+// Corporation, as it's essentially identical to one of those
+// found in "Divide, Square Root and Remainder" section at
 // http://www.intel.com/software/products/opensource/libraries/num.htm.
 // Yes, I admit that the referred code was used as template,
 // but after I realized that there hardly is any other instruction

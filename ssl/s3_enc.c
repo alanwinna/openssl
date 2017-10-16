@@ -1,6 +1,5 @@
 /*
  * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
- * Copyright 2005 Nokia. All rights reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -8,11 +7,37 @@
  * https://www.openssl.org/source/license.html
  */
 
+/* ====================================================================
+ * Copyright 2005 Nokia. All rights reserved.
+ *
+ * The portions of the attached software ("Contribution") is developed by
+ * Nokia Corporation and is licensed pursuant to the OpenSSL open source
+ * license.
+ *
+ * The Contribution, originally written by Mika Kousa and Pasi Eronen of
+ * Nokia Corporation, consists of the "PSK" (Pre-Shared Key) ciphersuites
+ * support (see RFC 4279) to OpenSSL.
+ *
+ * No patent licenses or other rights except those expressly stated in
+ * the OpenSSL open source license shall be deemed granted or received
+ * expressly, by implication, estoppel, or otherwise.
+ *
+ * No assurances are provided by Nokia that the Contribution does not
+ * infringe the patent or other intellectual property rights of any third
+ * party or that the license provides you with all the necessary rights
+ * to make use of the Contribution.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. IN
+ * ADDITION TO THE DISCLAIMERS INCLUDED IN THE LICENSE, NOKIA
+ * SPECIFICALLY DISCLAIMS ANY LIABILITY FOR CLAIMS BROUGHT BY YOU OR ANY
+ * OTHER ENTITY BASED ON INFRINGEMENT OF INTELLECTUAL PROPERTY RIGHTS OR
+ * OTHERWISE.
+ */
+
 #include <stdio.h>
 #include "ssl_locl.h"
 #include <openssl/evp.h>
 #include <openssl/md5.h>
-#include "internal/cryptlib.h"
 
 static int ssl3_generate_key_block(SSL *s, unsigned char *km, int num)
 {
@@ -88,17 +113,13 @@ int ssl3_change_cipher_state(SSL *s, int which)
     COMP_METHOD *comp;
 #endif
     const EVP_MD *m;
-    int mdi;
-    size_t n, i, j, k, cl;
+    int n, i, j, k, cl;
     int reuse_dd = 0;
 
     c = s->s3->tmp.new_sym_enc;
     m = s->s3->tmp.new_hash;
     /* m == NULL will lead to a crash later */
-    if (!ossl_assert(m != NULL)) {
-        SSLerr(SSL_F_SSL3_CHANGE_CIPHER_STATE, ERR_R_INTERNAL_ERROR);
-        goto err2;
-    }
+    OPENSSL_assert(m);
 #ifndef OPENSSL_NO_COMP
     if (s->s3->tmp.new_compression == NULL)
         comp = NULL;
@@ -173,10 +194,9 @@ int ssl3_change_cipher_state(SSL *s, int which)
         EVP_CIPHER_CTX_reset(dd);
 
     p = s->s3->tmp.key_block;
-    mdi = EVP_MD_size(m);
-    if (mdi < 0)
+    i = EVP_MD_size(m);
+    if (i < 0)
         goto err2;
-    i = mdi;
     cl = EVP_CIPHER_key_length(c);
     j = cl;
     k = EVP_CIPHER_iv_length(c);
@@ -210,7 +230,7 @@ int ssl3_change_cipher_state(SSL *s, int which)
 
     OPENSSL_cleanse(exp_key, sizeof(exp_key));
     OPENSSL_cleanse(exp_iv, sizeof(exp_iv));
-    return 1;
+    return (1);
  err:
     SSLerr(SSL_F_SSL3_CHANGE_CIPHER_STATE, ERR_R_MALLOC_FAILURE);
  err2:
@@ -229,7 +249,7 @@ int ssl3_setup_key_block(SSL *s)
     SSL_COMP *comp;
 
     if (s->s3->tmp.key_block_length != 0)
-        return 1;
+        return (1);
 
     if (!ssl_cipher_get_evp(s->session, &c, &hash, NULL, NULL, &comp, 0)) {
         SSLerr(SSL_F_SSL3_SETUP_KEY_BLOCK, SSL_R_CIPHER_OR_HASH_UNAVAILABLE);
@@ -320,18 +340,13 @@ void ssl3_free_digest_list(SSL *s)
     s->s3->handshake_dgst = NULL;
 }
 
-int ssl3_finish_mac(SSL *s, const unsigned char *buf, size_t len)
+int ssl3_finish_mac(SSL *s, const unsigned char *buf, int len)
 {
-    if (s->s3->handshake_dgst == NULL) {
-        int ret;
+    if (s->s3->handshake_dgst == NULL)
         /* Note: this writes to a memory BIO so a failure is a fatal error */
-        if (len > INT_MAX)
-            return 0;
-        ret = BIO_write(s->s3->handshake_buffer, (void *)buf, (int)len);
-        return ret > 0 && ret == (int)len;
-    } else {
+        return BIO_write(s->s3->handshake_buffer, (void *)buf, len) == len;
+    else
         return EVP_DigestUpdate(s->s3->handshake_dgst, buf, len);
-    }
 }
 
 int ssl3_digest_cached_records(SSL *s, int keep)
@@ -369,8 +384,7 @@ int ssl3_digest_cached_records(SSL *s, int keep)
     return 1;
 }
 
-size_t ssl3_final_finish_mac(SSL *s, const char *sender, size_t len,
-                             unsigned char *p)
+int ssl3_final_finish_mac(SSL *s, const char *sender, int len, unsigned char *p)
 {
     int ret;
     EVP_MD_CTX *ctx = NULL;
@@ -401,7 +415,7 @@ size_t ssl3_final_finish_mac(SSL *s, const char *sender, size_t len,
 
     if ((sender != NULL && EVP_DigestUpdate(ctx, sender, len) <= 0)
         || EVP_MD_CTX_ctrl(ctx, EVP_CTRL_SSL3_MASTER_SECRET,
-                           (int)s->session->master_key_length,
+                           s->session->master_key_length,
                            s->session->master_key) <= 0
         || EVP_DigestFinal_ex(ctx, p, NULL) <= 0) {
         SSLerr(SSL_F_SSL3_FINAL_FINISH_MAC, ERR_R_INTERNAL_ERROR);
@@ -414,7 +428,7 @@ size_t ssl3_final_finish_mac(SSL *s, const char *sender, size_t len,
 }
 
 int ssl3_generate_master_secret(SSL *s, unsigned char *out, unsigned char *p,
-                                size_t len, size_t *secret_size)
+                                int len)
 {
     static const unsigned char *salt[3] = {
 #ifndef CHARSET_EBCDIC
@@ -429,9 +443,8 @@ int ssl3_generate_master_secret(SSL *s, unsigned char *out, unsigned char *p,
     };
     unsigned char buf[EVP_MAX_MD_SIZE];
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    int i, ret = 1;
+    int i, ret = 0;
     unsigned int n;
-    size_t ret_secret_size = 0;
 
     if (ctx == NULL) {
         SSLerr(SSL_F_SSL3_GENERATE_MASTER_SECRET, ERR_R_MALLOC_FAILURE);
@@ -446,7 +459,6 @@ int ssl3_generate_master_secret(SSL *s, unsigned char *out, unsigned char *p,
                                 SSL3_RANDOM_SIZE) <= 0
             || EVP_DigestUpdate(ctx, &(s->s3->server_random[0]),
                                 SSL3_RANDOM_SIZE) <= 0
-               /* TODO(size_t) : convert me */
             || EVP_DigestFinal_ex(ctx, buf, &n) <= 0
             || EVP_DigestInit_ex(ctx, s->ctx->md5, NULL) <= 0
             || EVP_DigestUpdate(ctx, p, len) <= 0
@@ -457,14 +469,12 @@ int ssl3_generate_master_secret(SSL *s, unsigned char *out, unsigned char *p,
             break;
         }
         out += n;
-        ret_secret_size += n;
+        ret += n;
     }
     EVP_MD_CTX_free(ctx);
 
     OPENSSL_cleanse(buf, sizeof(buf));
-    if (ret)
-        *secret_size = ret_secret_size;
-    return ret;
+    return (ret);
 }
 
 int ssl3_alert_code(int code)
@@ -534,8 +544,6 @@ int ssl3_alert_code(int code)
         return (TLS1_AD_INAPPROPRIATE_FALLBACK);
     case SSL_AD_NO_APPLICATION_PROTOCOL:
         return (TLS1_AD_NO_APPLICATION_PROTOCOL);
-    case SSL_AD_CERTIFICATE_REQUIRED:
-        return SSL_AD_HANDSHAKE_FAILURE;
     default:
         return (-1);
     }

@@ -7,7 +7,6 @@
  * https://www.openssl.org/source/license.html
  */
 
-#include <limits.h>
 #include <stdio.h>
 #include "internal/cryptlib.h"
 #include <openssl/asn1.h>
@@ -24,7 +23,7 @@ int i2c_ASN1_BIT_STRING(ASN1_BIT_STRING *a, unsigned char **pp)
     unsigned char *p, *d;
 
     if (a == NULL)
-        return 0;
+        return (0);
 
     len = a->length;
 
@@ -89,11 +88,6 @@ ASN1_BIT_STRING *c2i_ASN1_BIT_STRING(ASN1_BIT_STRING **a,
         goto err;
     }
 
-    if (len > INT_MAX) {
-        i = ASN1_R_STRING_TOO_LONG;
-        goto err;
-    }
-
     if ((a == NULL) || ((*a) == NULL)) {
         if ((ret = ASN1_BIT_STRING_new()) == NULL)
             return (NULL);
@@ -141,7 +135,7 @@ ASN1_BIT_STRING *c2i_ASN1_BIT_STRING(ASN1_BIT_STRING **a,
 }
 
 /*
- * These next 2 functions from Goetz Babin-Ebell.
+ * These next 2 functions from Goetz Babin-Ebell <babinebell@trustcenter.de>
  */
 int ASN1_BIT_STRING_set_bit(ASN1_BIT_STRING *a, int n, int value)
 {
@@ -175,7 +169,7 @@ int ASN1_BIT_STRING_set_bit(ASN1_BIT_STRING *a, int n, int value)
     a->data[w] = ((a->data[w]) & iv) | v;
     while ((a->length > 0) && (a->data[a->length - 1] == 0))
         a->length--;
-    return 1;
+    return (1);
 }
 
 int ASN1_BIT_STRING_get_bit(const ASN1_BIT_STRING *a, int n)
@@ -185,7 +179,7 @@ int ASN1_BIT_STRING_get_bit(const ASN1_BIT_STRING *a, int n)
     w = n / 8;
     v = 1 << (7 - (n & 0x07));
     if ((a == NULL) || (a->length < (w + 1)) || (a->data == NULL))
-        return 0;
+        return (0);
     return ((a->data[w] & v) != 0);
 }
 

@@ -30,11 +30,7 @@ static long linebuffer_callback_ctrl(BIO *h, int cmd, bio_info_cb *fp);
 static const BIO_METHOD methods_linebuffer = {
     BIO_TYPE_LINEBUFFER,
     "linebuffer",
-    /* TODO: Convert to new style write function */
-    bwrite_conv,
     linebuffer_write,
-    /* TODO: Convert to new style read function */
-    bread_conv,
     linebuffer_read,
     linebuffer_puts,
     linebuffer_gets,
@@ -73,7 +69,7 @@ static int linebuffer_new(BIO *bi)
     bi->init = 1;
     bi->ptr = (char *)ctx;
     bi->flags = 0;
-    return 1;
+    return (1);
 }
 
 static int linebuffer_free(BIO *a)
@@ -88,7 +84,7 @@ static int linebuffer_free(BIO *a)
     a->ptr = NULL;
     a->init = 0;
     a->flags = 0;
-    return 1;
+    return (1);
 }
 
 static int linebuffer_read(BIO *b, char *out, int outl)

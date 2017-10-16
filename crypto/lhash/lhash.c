@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -29,9 +29,9 @@ OPENSSL_LHASH *OPENSSL_LH_new(OPENSSL_LH_HASHFUNC h, OPENSSL_LH_COMPFUNC c)
     OPENSSL_LHASH *ret;
 
     if ((ret = OPENSSL_zalloc(sizeof(*ret))) == NULL)
-        return NULL;
+        goto err0;
     if ((ret->b = OPENSSL_zalloc(sizeof(*ret->b) * MIN_NODES)) == NULL)
-        goto err;
+        goto err1;
     ret->comp = ((c == NULL) ? (OPENSSL_LH_COMPFUNC)strcmp : c);
     ret->hash = ((h == NULL) ? (OPENSSL_LH_HASHFUNC)OPENSSL_LH_strhash : h);
     ret->num_nodes = MIN_NODES / 2;
@@ -39,12 +39,12 @@ OPENSSL_LHASH *OPENSSL_LH_new(OPENSSL_LH_HASHFUNC h, OPENSSL_LH_COMPFUNC c)
     ret->pmax = MIN_NODES / 2;
     ret->up_load = UP_LOAD;
     ret->down_load = DOWN_LOAD;
-    return ret;
+    return (ret);
 
-err:
-    OPENSSL_free(ret->b);
+ err1:
     OPENSSL_free(ret);
-    return NULL;
+ err0:
+    return (NULL);
 }
 
 void OPENSSL_LH_free(OPENSSL_LHASH *lh)
@@ -82,7 +82,7 @@ void *OPENSSL_LH_insert(OPENSSL_LHASH *lh, void *data)
     if (*rn == NULL) {
         if ((nn = OPENSSL_malloc(sizeof(*nn))) == NULL) {
             lh->error++;
-            return NULL;
+            return (NULL);
         }
         nn->data = data;
         nn->next = NULL;
@@ -92,11 +92,12 @@ void *OPENSSL_LH_insert(OPENSSL_LHASH *lh, void *data)
         lh->num_insert++;
         lh->num_items++;
     } else {                    /* replace same key */
+
         ret = (*rn)->data;
         (*rn)->data = data;
         lh->num_replace++;
     }
-    return ret;
+    return (ret);
 }
 
 void *OPENSSL_LH_delete(OPENSSL_LHASH *lh, const void *data)
@@ -110,7 +111,7 @@ void *OPENSSL_LH_delete(OPENSSL_LHASH *lh, const void *data)
 
     if (*rn == NULL) {
         lh->num_no_delete++;
-        return NULL;
+        return (NULL);
     } else {
         nn = *rn;
         *rn = nn->next;
@@ -124,7 +125,7 @@ void *OPENSSL_LH_delete(OPENSSL_LHASH *lh, const void *data)
         (lh->down_load >= (lh->num_items * LH_LOAD_MULT / lh->num_nodes)))
         contract(lh);
 
-    return ret;
+    return (ret);
 }
 
 void *OPENSSL_LH_retrieve(OPENSSL_LHASH *lh, const void *data)
@@ -138,12 +139,12 @@ void *OPENSSL_LH_retrieve(OPENSSL_LHASH *lh, const void *data)
 
     if (*rn == NULL) {
         lh->num_retrieve_miss++;
-        return NULL;
+        return (NULL);
     } else {
         ret = (*rn)->data;
         lh->num_retrieve++;
     }
-    return ret;
+    return (ret);
 }
 
 static void doall_util_fn(OPENSSL_LHASH *lh, int use_arg,
@@ -291,7 +292,7 @@ static OPENSSL_LH_NODE **getrn(OPENSSL_LHASH *lh,
             break;
         ret = &(n1->next);
     }
-    return ret;
+    return (ret);
 }
 
 /*
@@ -307,7 +308,12 @@ unsigned long OPENSSL_LH_strhash(const char *c)
     int r;
 
     if ((c == NULL) || (*c == '\0'))
-        return ret;
+        return (ret);
+/*-
+    unsigned char b[16];
+    MD5(c,strlen(c),b);
+    return(b[0]|(b[1]<<8)|(b[2]<<16)|(b[3]<<24));
+*/
 
     n = 0x100;
     while (*c) {
@@ -319,7 +325,7 @@ unsigned long OPENSSL_LH_strhash(const char *c)
         ret ^= v * v;
         c++;
     }
-    return (ret >> 16) ^ ret;
+    return ((ret >> 16) ^ ret);
 }
 
 unsigned long OPENSSL_LH_num_items(const OPENSSL_LHASH *lh)

@@ -86,10 +86,7 @@ static void xcloselog(BIO *bp);
 
 static const BIO_METHOD methods_slg = {
     BIO_TYPE_MEM, "syslog",
-    /* TODO: Convert to new style write function */
-    bwrite_conv,
     slg_write,
-    NULL,
     NULL,
     slg_puts,
     NULL,
@@ -110,7 +107,7 @@ static int slg_new(BIO *bi)
     bi->num = 0;
     bi->ptr = NULL;
     xopenlog(bi, "application", LOG_DAEMON);
-    return 1;
+    return (1);
 }
 
 static int slg_free(BIO *a)
@@ -118,7 +115,7 @@ static int slg_free(BIO *a)
     if (a == NULL)
         return (0);
     xcloselog(a);
-    return 1;
+    return (1);
 }
 
 static int slg_write(BIO *b, const char *in, int inl)

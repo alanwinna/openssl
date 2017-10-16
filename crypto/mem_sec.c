@@ -1,11 +1,15 @@
 /*
  * Copyright 2015-2017 The OpenSSL Project Authors. All Rights Reserved.
- * Copyright 2004-2014, Akamai Technologies. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
  * https://www.openssl.org/source/license.html
+ */
+
+/*
+ * Copyright 2004-2014, Akamai Technologies. All Rights Reserved.
+ * This file is distributed under the terms of the OpenSSL license.
  */
 
 /*
@@ -15,8 +19,8 @@
  * For details on that implementation, see below (look for uppercase
  * "SECURE HEAP IMPLEMENTATION").
  */
-#include "e_os.h"
 #include <openssl/crypto.h>
+#include <e_os.h>
 
 #include <string.h>
 
@@ -27,11 +31,6 @@
 # include <unistd.h>
 # include <sys/types.h>
 # include <sys/mman.h>
-# if defined(OPENSSL_SYS_LINUX)
-#  include <sys/syscall.h>
-#  include <linux/mman.h>
-#  include <errno.h>
-# endif
 # include <sys/param.h>
 # include <sys/stat.h>
 # include <fcntl.h>
@@ -53,8 +52,8 @@ static CRYPTO_RWLOCK *sec_malloc_lock = NULL;
  * These are the functions that must be implemented by a secure heap (sh).
  */
 static int sh_init(size_t size, int minsize);
-static void *sh_malloc(size_t size);
-static void sh_free(void *ptr);
+static char *sh_malloc(size_t size);
+static void sh_free(char *ptr);
 static void sh_done(void);
 static size_t sh_actual_size(char *ptr);
 static int sh_allocated(const char *ptr);
@@ -66,7 +65,7 @@ int CRYPTO_secure_malloc_init(size_t size, int minsize)
     int ret = 0;
 
     if (!secure_mem_initialized) {
-        sec_malloc_lock = CRYPTO_THREAD_glock_new("sec_malloc");
+        sec_malloc_lock = CRYPTO_THREAD_lock_new();
         if (sec_malloc_lock == NULL)
             return 0;
         if ((ret = sh_init(size, minsize)) != 0) {
@@ -153,33 +152,6 @@ void CRYPTO_secure_free(void *ptr, const char *file, int line)
     sh_free(ptr);
     CRYPTO_THREAD_unlock(sec_malloc_lock);
 #else
-    CRYPTO_free(ptr, file, line);
-#endif /* IMPLEMENTED */
-}
-
-void CRYPTO_secure_clear_free(void *ptr, size_t num,
-                              const char *file, int line)
-{
-#ifdef IMPLEMENTED
-    size_t actual_size;
-
-    if (ptr == NULL)
-        return;
-    if (!CRYPTO_secure_allocated(ptr)) {
-        OPENSSL_cleanse(ptr, num);
-        CRYPTO_free(ptr, file, line);
-        return;
-    }
-    CRYPTO_THREAD_write_lock(sec_malloc_lock);
-    actual_size = sh_actual_size(ptr);
-    CLEAR(ptr, actual_size);
-    secure_mem_used -= actual_size;
-    sh_free(ptr);
-    CRYPTO_THREAD_unlock(sec_malloc_lock);
-#else
-    if (ptr == NULL)
-        return;
-    OPENSSL_cleanse(ptr, num);
     CRYPTO_free(ptr, file, line);
 #endif /* IMPLEMENTED */
 }
@@ -466,19 +438,8 @@ static int sh_init(size_t size, int minsize)
     if (mprotect(sh.map_result + aligned, pgsize, PROT_NONE) < 0)
         ret = 2;
 
-#if defined(OPENSSL_SYS_LINUX) && defined(MLOCK_ONFAULT) && defined(SYS_mlock2)
-    if (syscall(SYS_mlock2, sh.arena, sh.arena_size, MLOCK_ONFAULT) < 0) {
-        if (errno == ENOSYS) {
-            if (mlock(sh.arena, sh.arena_size) < 0)
-                ret = 2;
-        } else {
-            ret = 2;
-        }
-    }
-#else
     if (mlock(sh.arena, sh.arena_size) < 0)
         ret = 2;
-#endif
 #ifdef MADV_DONTDUMP
     if (madvise(sh.arena, sh.arena_size, MADV_DONTDUMP) < 0)
         ret = 2;
@@ -520,7 +481,7 @@ static char *sh_find_my_buddy(char *ptr, int list)
     return chunk;
 }
 
-static void *sh_malloc(size_t size)
+static char *sh_malloc(size_t size)
 {
     ossl_ssize_t list, slist;
     size_t i;
@@ -582,10 +543,10 @@ static void *sh_malloc(size_t size)
     return chunk;
 }
 
-static void sh_free(void *ptr)
+static void sh_free(char *ptr)
 {
     size_t list;
-    void *buddy;
+    char *buddy;
 
     if (ptr == NULL)
         return;

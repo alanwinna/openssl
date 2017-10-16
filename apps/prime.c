@@ -17,7 +17,7 @@ typedef enum OPTION_choice {
     OPT_HEX, OPT_GENERATE, OPT_BITS, OPT_SAFE, OPT_CHECKS
 } OPTION_CHOICE;
 
-const OPTIONS prime_options[] = {
+OPTIONS prime_options[] = {
     {OPT_HELP_STR, 1, '-', "Usage: %s [options] [number...]\n"},
     {OPT_HELP_STR, 1, '-',
         "  number Number to check for primality\n"},
@@ -43,7 +43,6 @@ int prime_main(int argc, char **argv)
         switch (o) {
         case OPT_EOF:
         case OPT_ERR:
-opthelp:
             BIO_printf(bio_err, "%s: Use -help for summary.\n", prog);
             goto end;
         case OPT_HELP:
@@ -70,14 +69,9 @@ opthelp:
     argc = opt_num_rest();
     argv = opt_rest();
 
-    if (generate) {
-        if (argc != 0) {
-            BIO_printf(bio_err, "Extra arguments given.\n");
-            goto opthelp;
-        }
-    } else if (argc == 0) {
+    if (argc == 0 && !generate) {
         BIO_printf(bio_err, "%s: No prime specified\n", prog);
-        goto opthelp;
+        goto end;
     }
 
     if (generate) {
@@ -112,7 +106,7 @@ opthelp:
             else
                 r = BN_dec2bn(&bn, argv[0]);
 
-            if (!r) {
+            if(!r) {
                 BIO_printf(bio_err, "Failed to process value (%s)\n", argv[0]);
                 goto end;
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -9,7 +9,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "internal/ctype.h"
+#include <ctype.h>
 #include "internal/numbers.h"
 #include "internal/cryptlib.h"
 #include <openssl/bio.h>
@@ -69,7 +69,6 @@ static int _dopr(char **sbuffer, char **buffer,
 #define DP_C_LONG       2
 #define DP_C_LDOUBLE    3
 #define DP_C_LLONG      4
-#define DP_C_SIZE       5
 
 /* Floating point formats */
 #define F_FORMAT        0
@@ -143,7 +142,7 @@ _dopr(char **sbuffer,
             }
             break;
         case DP_S_MIN:
-            if (ossl_isdigit(ch)) {
+            if (isdigit((unsigned char)ch)) {
                 min = 10 * min + char_to_int(ch);
                 ch = *format++;
             } else if (ch == '*') {
@@ -161,7 +160,7 @@ _dopr(char **sbuffer,
                 state = DP_S_MOD;
             break;
         case DP_S_MAX:
-            if (ossl_isdigit(ch)) {
+            if (isdigit((unsigned char)ch)) {
                 if (max < 0)
                     max = 0;
                 max = 10 * max + char_to_int(ch);
@@ -188,16 +187,11 @@ _dopr(char **sbuffer,
                 ch = *format++;
                 break;
             case 'q':
-            case 'j':
                 cflags = DP_C_LLONG;
                 ch = *format++;
                 break;
             case 'L':
                 cflags = DP_C_LDOUBLE;
-                ch = *format++;
-                break;
-            case 'z':
-                cflags = DP_C_SIZE;
                 ch = *format++;
                 break;
             default:
@@ -218,9 +212,6 @@ _dopr(char **sbuffer,
                     break;
                 case DP_C_LLONG:
                     value = va_arg(args, int64_t);
-                    break;
-                case DP_C_SIZE:
-                    value = va_arg(args, ossl_ssize_t);
                     break;
                 default:
                     value = va_arg(args, int);
@@ -247,9 +238,6 @@ _dopr(char **sbuffer,
                 case DP_C_LLONG:
                     value = va_arg(args, uint64_t);
                     break;
-                case DP_C_SIZE:
-                    value = va_arg(args, size_t);
-                    break;
                 default:
                     value = va_arg(args, unsigned int);
                     break;
@@ -270,7 +258,6 @@ _dopr(char **sbuffer,
                 break;
             case 'E':
                 flags |= DP_F_UP;
-                /* fall thru */
             case 'e':
                 if (cflags == DP_C_LDOUBLE)
                     fvalue = va_arg(args, LDOUBLE);
@@ -282,7 +269,6 @@ _dopr(char **sbuffer,
                 break;
             case 'G':
                 flags |= DP_F_UP;
-                /* fall thru */
             case 'g':
                 if (cflags == DP_C_LDOUBLE)
                     fvalue = va_arg(args, LDOUBLE);
@@ -315,8 +301,20 @@ _dopr(char **sbuffer,
                             value, 16, min, max, flags | DP_F_NUM))
                     return 0;
                 break;
-            case 'n':
-                {
+            case 'n':          /* XXX */
+                if (cflags == DP_C_SHORT) {
+                    short int *num;
+                    num = va_arg(args, short int *);
+                    *num = currlen;
+                } else if (cflags == DP_C_LONG) { /* XXX */
+                    long int *num;
+                    num = va_arg(args, long int *);
+                    *num = (long int)currlen;
+                } else if (cflags == DP_C_LLONG) { /* XXX */
+                    int64_t *num;
+                    num = va_arg(args, int64_t *);
+                    *num = (int64_t)currlen;
+                } else {
                     int *num;
                     num = va_arg(args, int *);
                     *num = currlen;
@@ -805,13 +803,11 @@ static int
 doapr_outch(char **sbuffer,
             char **buffer, size_t *currlen, size_t *maxlen, int c)
 {
-    /* If we haven't at least one buffer, someone has done a big booboo */
-    if (!ossl_assert(*sbuffer != NULL || buffer != NULL))
-        return 0;
+    /* If we haven't at least one buffer, someone has doe a big booboo */
+    OPENSSL_assert(*sbuffer != NULL || buffer != NULL);
 
     /* |currlen| must always be <= |*maxlen| */
-    if (!ossl_assert(*currlen <= *maxlen))
-        return 0;
+    OPENSSL_assert(*currlen <= *maxlen);
 
     if (buffer && *currlen == *maxlen) {
         if (*maxlen > INT_MAX - BUFFER_INC)
@@ -823,8 +819,7 @@ doapr_outch(char **sbuffer,
             if (*buffer == NULL)
                 return 0;
             if (*currlen > 0) {
-                if (!ossl_assert(*sbuffer != NULL))
-                    return 0;
+                OPENSSL_assert(*sbuffer != NULL);
                 memcpy(*buffer, *sbuffer, *currlen);
             }
             *sbuffer = NULL;

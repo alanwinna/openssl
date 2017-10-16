@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -43,15 +43,17 @@ int BN_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
     int i, bits, ret = 0;
     BIGNUM *v, *rr;
 
-    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(a, BN_FLG_CONSTTIME) != 0) {
+    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0) {
         /* BN_FLG_CONSTTIME only supported by BN_mod_exp_mont() */
         BNerr(BN_F_BN_EXP, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
         return 0;
     }
 
     BN_CTX_start(ctx);
-    rr = ((r == a) || (r == p)) ? BN_CTX_get(ctx) : r;
+    if ((r == a) || (r == p))
+        rr = BN_CTX_get(ctx);
+    else
+        rr = r;
     v = BN_CTX_get(ctx);
     if (rr == NULL || v == NULL)
         goto err;
@@ -83,7 +85,7 @@ int BN_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
  err:
     BN_CTX_end(ctx);
     bn_check_top(r);
-    return ret;
+    return (ret);
 }
 
 int BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, const BIGNUM *m,
@@ -131,12 +133,17 @@ int BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, const BIGNUM *m,
 #define RECP_MUL_MOD
 
 #ifdef MONT_MUL_MOD
+    /*
+     * I have finally been able to take out this pre-condition of the top bit
+     * being set.  It was caused by an error in BN_div with negatives.  There
+     * was also another problem when for a^b%m a >= m.  eay 07-May-97
+     */
+    /* if ((m->d[m->top-1]&BN_TBIT) && BN_is_odd(m)) */
+
     if (BN_is_odd(m)) {
 # ifdef MONT_EXP_WORD
         if (a->top == 1 && !a->neg
-            && (BN_get_flags(p, BN_FLG_CONSTTIME) == 0)
-            && (BN_get_flags(a, BN_FLG_CONSTTIME) == 0)
-            && (BN_get_flags(m, BN_FLG_CONSTTIME) == 0)) {
+            && (BN_get_flags(p, BN_FLG_CONSTTIME) == 0)) {
             BN_ULONG A = a->d[0];
             ret = BN_mod_exp_mont_word(r, A, p, m, ctx, NULL);
         } else
@@ -168,9 +175,7 @@ int BN_mod_exp_recp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
     BIGNUM *val[TABLE_SIZE];
     BN_RECP_CTX recp;
 
-    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(a, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(m, BN_FLG_CONSTTIME) != 0) {
+    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0) {
         /* BN_FLG_CONSTTIME only supported by BN_mod_exp_mont() */
         BNerr(BN_F_BN_MOD_EXP_RECP, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
         return 0;
@@ -191,7 +196,7 @@ int BN_mod_exp_recp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
     BN_CTX_start(ctx);
     aa = BN_CTX_get(ctx);
     val[0] = BN_CTX_get(ctx);
-    if (val[0] == NULL)
+    if (!aa || !val[0])
         goto err;
 
     BN_RECP_CTX_init(&recp);
@@ -304,9 +309,7 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     BIGNUM *val[TABLE_SIZE];
     BN_MONT_CTX *mont = NULL;
 
-    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(a, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(m, BN_FLG_CONSTTIME) != 0) {
+    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0) {
         return BN_mod_exp_mont_consttime(rr, a, p, m, ctx, in_mont);
     }
 
@@ -334,7 +337,7 @@ int BN_mod_exp_mont(BIGNUM *rr, const BIGNUM *a, const BIGNUM *p,
     d = BN_CTX_get(ctx);
     r = BN_CTX_get(ctx);
     val[0] = BN_CTX_get(ctx);
-    if (val[0] == NULL)
+    if (!d || !r || !val[0])
         goto err;
 
     /*
@@ -1099,7 +1102,7 @@ int BN_mod_exp_mont_word(BIGNUM *rr, BN_ULONG a, const BIGNUM *p,
     int b, bits, ret = 0;
     int r_is_one;
     BN_ULONG w, next_w;
-    BIGNUM *r, *t;
+    BIGNUM *d, *r, *t;
     BIGNUM *swap_tmp;
 #define BN_MOD_MUL_WORD(r, w, m) \
                 (BN_mul_word(r, (w)) && \
@@ -1118,8 +1121,7 @@ int BN_mod_exp_mont_word(BIGNUM *rr, BN_ULONG a, const BIGNUM *p,
 #define BN_TO_MONTGOMERY_WORD(r, w, mont) \
                 (BN_set_word(r, (w)) && BN_to_montgomery(r, r, (mont), ctx))
 
-    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(m, BN_FLG_CONSTTIME) != 0) {
+    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0) {
         /* BN_FLG_CONSTTIME only supported by BN_mod_exp_mont() */
         BNerr(BN_F_BN_MOD_EXP_MONT_WORD, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
         return 0;
@@ -1153,9 +1155,10 @@ int BN_mod_exp_mont_word(BIGNUM *rr, BN_ULONG a, const BIGNUM *p,
     }
 
     BN_CTX_start(ctx);
+    d = BN_CTX_get(ctx);
     r = BN_CTX_get(ctx);
     t = BN_CTX_get(ctx);
-    if (t == NULL)
+    if (d == NULL || r == NULL || t == NULL)
         goto err;
 
     if (in_mont != NULL)
@@ -1249,9 +1252,7 @@ int BN_mod_exp_simple(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
     /* Table of variables obtained from 'ctx' */
     BIGNUM *val[TABLE_SIZE];
 
-    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(a, BN_FLG_CONSTTIME) != 0
-            || BN_get_flags(m, BN_FLG_CONSTTIME) != 0) {
+    if (BN_get_flags(p, BN_FLG_CONSTTIME) != 0) {
         /* BN_FLG_CONSTTIME only supported by BN_mod_exp_mont() */
         BNerr(BN_F_BN_MOD_EXP_SIMPLE, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
         return 0;
@@ -1272,7 +1273,7 @@ int BN_mod_exp_simple(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
     BN_CTX_start(ctx);
     d = BN_CTX_get(ctx);
     val[0] = BN_CTX_get(ctx);
-    if (val[0] == NULL)
+    if (!d || !val[0])
         goto err;
 
     if (!BN_nnmod(val[0], a, m, ctx))

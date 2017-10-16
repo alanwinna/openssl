@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -12,6 +12,7 @@
 #include <errno.h>
 
 #include "internal/cryptlib.h"
+#include <openssl/lhash.h>
 #include <openssl/buffer.h>
 #include <openssl/x509.h>
 #include <openssl/pem.h>
@@ -41,12 +42,12 @@ static int by_file_ctrl(X509_LOOKUP *ctx, int cmd, const char *argp,
                         long argl, char **ret)
 {
     int ok = 0;
-    const char *file;
+    char *file;
 
     switch (cmd) {
     case X509_L_FILE_LOAD:
         if (argl == X509_FILETYPE_DEFAULT) {
-            file = getenv(X509_get_default_cert_file_env());
+            file = (char *)getenv(X509_get_default_cert_file_env());
             if (file)
                 ok = (X509_load_cert_crl_file(ctx, file,
                                               X509_FILETYPE_PEM) != 0);
@@ -78,6 +79,8 @@ int X509_load_cert_file(X509_LOOKUP *ctx, const char *file, int type)
     int i, count = 0;
     X509 *x = NULL;
 
+    if (file == NULL)
+        return (1);
     in = BIO_new(BIO_s_file());
 
     if ((in == NULL) || (BIO_read_filename(in, file) <= 0)) {
@@ -87,7 +90,7 @@ int X509_load_cert_file(X509_LOOKUP *ctx, const char *file, int type)
 
     if (type == X509_FILETYPE_PEM) {
         for (;;) {
-            x = PEM_read_bio_X509_AUX(in, NULL, NULL, "");
+            x = PEM_read_bio_X509_AUX(in, NULL, NULL, NULL);
             if (x == NULL) {
                 if ((ERR_GET_REASON(ERR_peek_last_error()) ==
                      PEM_R_NO_START_LINE) && (count > 0)) {
@@ -120,8 +123,6 @@ int X509_load_cert_file(X509_LOOKUP *ctx, const char *file, int type)
         X509err(X509_F_X509_LOAD_CERT_FILE, X509_R_BAD_X509_FILETYPE);
         goto err;
     }
-    if (ret == 0)
-        X509err(X509_F_X509_LOAD_CERT_FILE, X509_R_NO_CERTIFICATE_FOUND);
  err:
     X509_free(x);
     BIO_free(in);
@@ -135,6 +136,8 @@ int X509_load_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     int i, count = 0;
     X509_CRL *x = NULL;
 
+    if (file == NULL)
+        return (1);
     in = BIO_new(BIO_s_file());
 
     if ((in == NULL) || (BIO_read_filename(in, file) <= 0)) {
@@ -144,7 +147,7 @@ int X509_load_crl_file(X509_LOOKUP *ctx, const char *file, int type)
 
     if (type == X509_FILETYPE_PEM) {
         for (;;) {
-            x = PEM_read_bio_X509_CRL(in, NULL, NULL, "");
+            x = PEM_read_bio_X509_CRL(in, NULL, NULL, NULL);
             if (x == NULL) {
                 if ((ERR_GET_REASON(ERR_peek_last_error()) ==
                      PEM_R_NO_START_LINE) && (count > 0)) {
@@ -177,8 +180,6 @@ int X509_load_crl_file(X509_LOOKUP *ctx, const char *file, int type)
         X509err(X509_F_X509_LOAD_CRL_FILE, X509_R_BAD_X509_FILETYPE);
         goto err;
     }
-    if (ret == 0)
-        X509err(X509_F_X509_LOAD_CRL_FILE, X509_R_NO_CRL_FOUND);
  err:
     X509_CRL_free(x);
     BIO_free(in);
@@ -191,7 +192,6 @@ int X509_load_cert_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     X509_INFO *itmp;
     BIO *in;
     int i, count = 0;
-
     if (type != X509_FILETYPE_PEM)
         return X509_load_cert_file(ctx, file, type);
     in = BIO_new_file(file, "r");
@@ -199,7 +199,7 @@ int X509_load_cert_crl_file(X509_LOOKUP *ctx, const char *file, int type)
         X509err(X509_F_X509_LOAD_CERT_CRL_FILE, ERR_R_SYS_LIB);
         return 0;
     }
-    inf = PEM_X509_INFO_read_bio(in, NULL, NULL, "");
+    inf = PEM_X509_INFO_read_bio(in, NULL, NULL, NULL);
     BIO_free(in);
     if (!inf) {
         X509err(X509_F_X509_LOAD_CERT_CRL_FILE, ERR_R_PEM_LIB);
@@ -208,20 +208,14 @@ int X509_load_cert_crl_file(X509_LOOKUP *ctx, const char *file, int type)
     for (i = 0; i < sk_X509_INFO_num(inf); i++) {
         itmp = sk_X509_INFO_value(inf, i);
         if (itmp->x509) {
-            if (!X509_STORE_add_cert(ctx->store_ctx, itmp->x509))
-                goto err;
+            X509_STORE_add_cert(ctx->store_ctx, itmp->x509);
             count++;
         }
         if (itmp->crl) {
-            if (!X509_STORE_add_crl(ctx->store_ctx, itmp->crl))
-                goto err;
+            X509_STORE_add_crl(ctx->store_ctx, itmp->crl);
             count++;
         }
     }
-    if (count == 0)
-        X509err(X509_F_X509_LOAD_CERT_CRL_FILE,
-                X509_R_NO_CERTIFICATE_OR_CRL_FOUND);
- err:
     sk_X509_INFO_pop_free(inf, X509_INFO_free);
     return count;
 }

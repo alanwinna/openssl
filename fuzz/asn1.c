@@ -27,11 +27,7 @@
 #include <openssl/ts.h>
 #include <openssl/x509v3.h>
 #include <openssl/cms.h>
-#include <openssl/err.h>
-#include <openssl/rand.h>
 #include "fuzzer.h"
-
-#include "rand.inc"
 
 static ASN1_ITEM_EXP *item_type[] = {
     ASN1_ITEM_ref(ACCESS_DESCRIPTION),
@@ -103,9 +99,7 @@ static ASN1_ITEM_EXP *item_type[] = {
     ASN1_ITEM_ref(IPAddressRange),
 #endif
     ASN1_ITEM_ref(ISSUING_DIST_POINT),
-#if OPENSSL_API_COMPAT < 0x10200000L
     ASN1_ITEM_ref(LONG),
-#endif
     ASN1_ITEM_ref(NAME_CONSTRAINTS),
     ASN1_ITEM_ref(NETSCAPE_CERT_SEQUENCE),
     ASN1_ITEM_ref(NETSCAPE_SPKAC),
@@ -185,43 +179,24 @@ static ASN1_ITEM_EXP *item_type[] = {
     ASN1_ITEM_ref(X509_REVOKED),
     ASN1_ITEM_ref(X509_SIG),
     ASN1_ITEM_ref(X509_VAL),
-#if OPENSSL_API_COMPAT < 0x10200000L
     ASN1_ITEM_ref(ZLONG),
-#endif
-    ASN1_ITEM_ref(INT32),
-    ASN1_ITEM_ref(ZINT32),
-    ASN1_ITEM_ref(UINT32),
-    ASN1_ITEM_ref(ZUINT32),
-    ASN1_ITEM_ref(INT64),
-    ASN1_ITEM_ref(ZINT64),
-    ASN1_ITEM_ref(UINT64),
-    ASN1_ITEM_ref(ZUINT64),
     NULL
 };
 
-static ASN1_PCTX *pctx;
+int FuzzerInitialize(int *argc, char ***argv) {
+    return 1;
+}
 
-int FuzzerInitialize(int *argc, char ***argv)
-{
-    pctx = ASN1_PCTX_new();
+int FuzzerTestOneInput(const uint8_t *buf, size_t len) {
+    int n;
+
+    ASN1_PCTX *pctx = ASN1_PCTX_new();
+
     ASN1_PCTX_set_flags(pctx, ASN1_PCTX_FLAGS_SHOW_ABSENT |
         ASN1_PCTX_FLAGS_SHOW_SEQUENCE | ASN1_PCTX_FLAGS_SHOW_SSOF |
         ASN1_PCTX_FLAGS_SHOW_TYPE | ASN1_PCTX_FLAGS_SHOW_FIELD_STRUCT_NAME);
     ASN1_PCTX_set_str_flags(pctx, ASN1_STRFLGS_UTF8_CONVERT |
         ASN1_STRFLGS_SHOW_TYPE | ASN1_STRFLGS_DUMP_ALL);
-
-    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL);
-    ERR_get_state();
-    CRYPTO_free_ex_index(0, -1);
-    FuzzerSetRand();
-
-    return 1;
-}
-
-int FuzzerTestOneInput(const uint8_t *buf, size_t len)
-{
-    int n;
-
 
     for (n = 0; item_type[n] != NULL; ++n) {
         const uint8_t *b = buf;
@@ -241,12 +216,7 @@ int FuzzerTestOneInput(const uint8_t *buf, size_t len)
         }
     }
 
-    ERR_clear_error();
+    ASN1_PCTX_free(pctx);
 
     return 0;
-}
-
-void FuzzerCleanup(void)
-{
-    ASN1_PCTX_free(pctx);
 }

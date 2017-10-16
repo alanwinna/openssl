@@ -114,7 +114,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 1024 * 1024,
@@ -126,7 +125,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA256",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 1024 * 1024,
@@ -138,7 +136,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 1024 * 1024 + 3,
@@ -150,7 +147,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA256",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 1024 * 1024 - 3,
@@ -165,7 +161,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 4 * 1024,
@@ -177,7 +172,6 @@ our @tests = (
         server => { },
         client => {
             CipherString => "AES128-SHA256",
-            MaxProtocol => "TLSv1.2"
         },
         test => {
             ApplicationData => 4 * 1024,

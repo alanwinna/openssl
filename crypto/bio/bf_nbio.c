@@ -34,11 +34,7 @@ typedef struct nbio_test_st {
 static const BIO_METHOD methods_nbiof = {
     BIO_TYPE_NBIO_TEST,
     "non-blocking IO test filter",
-    /* TODO: Convert to new style write function */
-    bwrite_conv,
     nbiof_write,
-    /* TODO: Convert to new style read function */
-    bread_conv,
     nbiof_read,
     nbiof_puts,
     nbiof_gets,
@@ -63,7 +59,7 @@ static int nbiof_new(BIO *bi)
     nt->lwn = -1;
     bi->ptr = (char *)nt;
     bi->init = 1;
-    return 1;
+    return (1);
 }
 
 static int nbiof_free(BIO *a)
@@ -74,7 +70,7 @@ static int nbiof_free(BIO *a)
     a->ptr = NULL;
     a->init = 0;
     a->flags = 0;
-    return 1;
+    return (1);
 }
 
 static int nbiof_read(BIO *b, char *out, int outl)

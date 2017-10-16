@@ -13,62 +13,6 @@
 #include "bio_lcl.h"
 #include "internal/cryptlib.h"
 
-
-/*
- * Helper macro for the callback to determine whether an operator expects a
- * len parameter or not
- */
-#define HAS_LEN_OPER(o)        ((o) == BIO_CB_READ || (o) == BIO_CB_WRITE || \
-                                (o) == BIO_CB_GETS)
-
-/*
- * Helper function to work out whether to call the new style callback or the old
- * one, and translate between the two.
- *
- * This has a long return type for consistency with the old callback. Similarly
- * for the "long" used for "inret"
- */
-static long bio_call_callback(BIO *b, int oper, const char *argp, size_t len,
-                              int argi, long argl, long inret, size_t *processed)
-{
-    long ret;
-    int bareoper;
-
-    if (b->callback_ex != NULL) {
-        return b->callback_ex(b, oper, argp, len, argi, argl, inret, processed);
-    }
-
-    /* Strip off any BIO_CB_RETURN flag */
-    bareoper = oper & ~BIO_CB_RETURN;
-
-    /*
-     * We have an old style callback, so we will have to do nasty casts and
-     * check for overflows.
-     */
-    if (HAS_LEN_OPER(bareoper)) {
-        /* In this case |len| is set, and should be used instead of |argi| */
-        if (len > INT_MAX)
-            return -1;
-
-        argi = (int)len;
-
-        if (inret && (oper & BIO_CB_RETURN)) {
-            if (*processed > INT_MAX)
-                return -1;
-            inret = *processed;
-        }
-    }
-
-    ret = b->callback(b, oper, argp, argi, argl, inret);
-
-    if (ret >= 0 && (HAS_LEN_OPER(bareoper) || bareoper == BIO_CB_PUTS)) {
-        *processed = (size_t)ret;
-        ret = 1;
-    }
-
-    return ret;
-}
-
 BIO *BIO_new(const BIO_METHOD *method)
 {
     BIO *bio = OPENSSL_zalloc(sizeof(*bio));
@@ -108,24 +52,21 @@ err:
 
 int BIO_free(BIO *a)
 {
-    int ret;
+    int i;
 
     if (a == NULL)
         return 0;
 
-    if (CRYPTO_DOWN_REF(&a->references, &ret, a->lock) <= 0)
+    if (CRYPTO_atomic_add(&a->references, -1, &i, a->lock) <= 0)
         return 0;
 
     REF_PRINT_COUNT("BIO", a);
-    if (ret > 0)
+    if (i > 0)
         return 1;
-    REF_ASSERT_ISNT(ret < 0);
-
-    if (a->callback != NULL || a->callback_ex != NULL) {
-        ret = (int)bio_call_callback(a, BIO_CB_FREE, NULL, 0, 0, 0L, 1L, NULL);
-        if (ret <= 0)
-            return ret;
-    }
+    REF_ASSERT_ISNT(i < 0);
+    if ((a->callback != NULL) &&
+        ((i = (int)a->callback(a, BIO_CB_FREE, NULL, 0, 0L, 1L)) <= 0))
+        return i;
 
     if ((a->method != NULL) && (a->method->destroy != NULL))
         a->method->destroy(a);
@@ -178,7 +119,7 @@ int BIO_up_ref(BIO *a)
 {
     int i;
 
-    if (CRYPTO_UP_REF(&a->references, &i, a->lock) <= 0)
+    if (CRYPTO_atomic_add(&a->references, 1, &i, a->lock) <= 0)
         return 0;
 
     REF_PRINT_COUNT("BIO", a);
@@ -201,24 +142,16 @@ void BIO_set_flags(BIO *b, int flags)
     b->flags |= flags;
 }
 
-BIO_callback_fn BIO_get_callback(const BIO *b)
-{
+long (*BIO_get_callback(const BIO *b)) (struct bio_st *, int, const char *,
+                                        int, long, long) {
     return b->callback;
 }
 
-void BIO_set_callback(BIO *b, BIO_callback_fn cb)
+void BIO_set_callback(BIO *b,
+                      long (*cb) (struct bio_st *, int, const char *, int,
+                                  long, long))
 {
     b->callback = cb;
-}
-
-BIO_callback_fn_ex BIO_get_callback_ex(const BIO *b)
-{
-    return b->callback_ex;
-}
-
-void BIO_set_callback_ex(BIO *b, BIO_callback_fn_ex cb)
-{
-    b->callback_ex = cb;
 }
 
 void BIO_set_callback_arg(BIO *b, char *arg)
@@ -241,239 +174,124 @@ int BIO_method_type(const BIO *b)
     return b->method->type;
 }
 
-/*
- * This is essentially the same as BIO_read_ex() except that it allows
- * 0 or a negative value to indicate failure (retryable or not) in the return.
- * This is for compatibility with the old style BIO_read(), where existing code
- * may make assumptions about the return value that it might get.
- */
-static int bio_read_intern(BIO *b, void *data, size_t dlen, size_t *readbytes)
+int BIO_read(BIO *b, void *out, int outl)
 {
-    int ret;
+    int i;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if ((b == NULL) || (b->method == NULL) || (b->method->bread == NULL)) {
-        BIOerr(BIO_F_BIO_READ_INTERN, BIO_R_UNSUPPORTED_METHOD);
-        return -2;
+        BIOerr(BIO_F_BIO_READ, BIO_R_UNSUPPORTED_METHOD);
+        return (-2);
     }
 
-    if ((b->callback != NULL || b->callback_ex != NULL) &&
-        ((ret = (int)bio_call_callback(b, BIO_CB_READ, data, dlen, 0, 0L, 1L,
-                                       readbytes)) <= 0))
-        return ret;
+    cb = b->callback;
+    if ((cb != NULL) &&
+        ((i = (int)cb(b, BIO_CB_READ, out, outl, 0L, 1L)) <= 0))
+        return (i);
 
     if (!b->init) {
-        BIOerr(BIO_F_BIO_READ_INTERN, BIO_R_UNINITIALIZED);
-        return -2;
+        BIOerr(BIO_F_BIO_READ, BIO_R_UNINITIALIZED);
+        return (-2);
     }
 
-    ret = b->method->bread(b, data, dlen, readbytes);
+    i = b->method->bread(b, out, outl);
 
-    if (ret > 0)
-        b->num_read += (uint64_t)*readbytes;
+    if (i > 0)
+        b->num_read += (uint64_t)i;
 
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = (int)bio_call_callback(b, BIO_CB_READ | BIO_CB_RETURN, data,
-                                     dlen, 0, 0L, ret, readbytes);
-
-    /* Shouldn't happen */
-    if (ret > 0 && *readbytes > dlen) {
-        BIOerr(BIO_F_BIO_READ_INTERN, ERR_R_INTERNAL_ERROR);
-        return -1;
-    }
-
-    return ret;
+    if (cb != NULL)
+        i = (int)cb(b, BIO_CB_READ | BIO_CB_RETURN, out, outl, 0L, (long)i);
+    return (i);
 }
 
-int BIO_read(BIO *b, void *data, int dlen)
+int BIO_write(BIO *b, const void *in, int inl)
 {
-    size_t readbytes;
-    int ret;
-
-    if (dlen < 0)
-        return 0;
-
-    ret = bio_read_intern(b, data, (size_t)dlen, &readbytes);
-
-    if (ret > 0) {
-        /* *readbytes should always be <= dlen */
-        ret = (int)readbytes;
-    }
-
-    return ret;
-}
-
-int BIO_read_ex(BIO *b, void *data, size_t dlen, size_t *readbytes)
-{
-    int ret;
-
-    ret = bio_read_intern(b, data, dlen, readbytes);
-
-    if (ret > 0)
-        ret = 1;
-    else
-        ret = 0;
-
-    return ret;
-}
-
-static int bio_write_intern(BIO *b, const void *data, size_t dlen,
-                            size_t *written)
-{
-    int ret;
+    int i;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if (b == NULL)
-        return 0;
+        return (0);
 
+    cb = b->callback;
     if ((b->method == NULL) || (b->method->bwrite == NULL)) {
-        BIOerr(BIO_F_BIO_WRITE_INTERN, BIO_R_UNSUPPORTED_METHOD);
-        return -2;
+        BIOerr(BIO_F_BIO_WRITE, BIO_R_UNSUPPORTED_METHOD);
+        return (-2);
     }
 
-    if ((b->callback != NULL || b->callback_ex != NULL) &&
-        ((ret = (int)bio_call_callback(b, BIO_CB_WRITE, data, dlen, 0, 0L, 1L,
-                                       written)) <= 0))
-        return ret;
+    if ((cb != NULL) &&
+        ((i = (int)cb(b, BIO_CB_WRITE, in, inl, 0L, 1L)) <= 0))
+        return (i);
 
     if (!b->init) {
-        BIOerr(BIO_F_BIO_WRITE_INTERN, BIO_R_UNINITIALIZED);
-        return -2;
+        BIOerr(BIO_F_BIO_WRITE, BIO_R_UNINITIALIZED);
+        return (-2);
     }
 
-    ret = b->method->bwrite(b, data, dlen, written);
+    i = b->method->bwrite(b, in, inl);
 
-    if (ret > 0)
-        b->num_write += (uint64_t)*written;
+    if (i > 0)
+        b->num_write += (uint64_t)i;
 
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = (int)bio_call_callback(b, BIO_CB_WRITE | BIO_CB_RETURN, data,
-                                     dlen, 0, 0L, ret, written);
-
-    return ret;
+    if (cb != NULL)
+        i = (int)cb(b, BIO_CB_WRITE | BIO_CB_RETURN, in, inl, 0L, (long)i);
+    return (i);
 }
 
-int BIO_write(BIO *b, const void *data, int dlen)
+int BIO_puts(BIO *b, const char *in)
 {
-    size_t written;
-    int ret;
-
-    if (dlen < 0)
-        return 0;
-
-    ret = bio_write_intern(b, data, (size_t)dlen, &written);
-
-    if (ret > 0) {
-        /* *written should always be <= dlen */
-        ret = (int)written;
-    }
-
-    return ret;
-}
-
-int BIO_write_ex(BIO *b, const void *data, size_t dlen, size_t *written)
-{
-    int ret;
-
-    ret = bio_write_intern(b, data, dlen, written);
-
-    if (ret > 0)
-        ret = 1;
-    else
-        ret = 0;
-
-    return ret;
-}
-
-int BIO_puts(BIO *b, const char *buf)
-{
-    int ret;
-    size_t written = 0;
+    int i;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if ((b == NULL) || (b->method == NULL) || (b->method->bputs == NULL)) {
         BIOerr(BIO_F_BIO_PUTS, BIO_R_UNSUPPORTED_METHOD);
-        return -2;
+        return (-2);
     }
 
-    if (b->callback != NULL || b->callback_ex != NULL) {
-        ret = (int)bio_call_callback(b, BIO_CB_PUTS, buf, 0, 0, 0L, 1L, NULL);
-        if (ret <= 0)
-            return ret;
-    }
+    cb = b->callback;
+
+    if ((cb != NULL) && ((i = (int)cb(b, BIO_CB_PUTS, in, 0, 0L, 1L)) <= 0))
+        return (i);
 
     if (!b->init) {
         BIOerr(BIO_F_BIO_PUTS, BIO_R_UNINITIALIZED);
-        return -2;
+        return (-2);
     }
 
-    ret = b->method->bputs(b, buf);
+    i = b->method->bputs(b, in);
 
-    if (ret > 0) {
-        b->num_write += (uint64_t)ret;
-        written = ret;
-        ret = 1;
-    }
+    if (i > 0)
+        b->num_write += (uint64_t)i;
 
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = (int)bio_call_callback(b, BIO_CB_PUTS | BIO_CB_RETURN, buf, 0, 0,
-                                     0L, ret, &written);
-
-    if (ret > 0) {
-        if (written > INT_MAX) {
-            BIOerr(BIO_F_BIO_PUTS, BIO_R_LENGTH_TOO_LONG);
-            ret = -1;
-        } else {
-            ret = (int)written;
-        }
-    }
-
-    return ret;
+    if (cb != NULL)
+        i = (int)cb(b, BIO_CB_PUTS | BIO_CB_RETURN, in, 0, 0L, (long)i);
+    return (i);
 }
 
-int BIO_gets(BIO *b, char *buf, int size)
+int BIO_gets(BIO *b, char *in, int inl)
 {
-    int ret;
-    size_t readbytes = 0;
+    int i;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if ((b == NULL) || (b->method == NULL) || (b->method->bgets == NULL)) {
         BIOerr(BIO_F_BIO_GETS, BIO_R_UNSUPPORTED_METHOD);
         return (-2);
     }
 
-    if (size < 0) {
-        BIOerr(BIO_F_BIO_GETS, BIO_R_INVALID_ARGUMENT);
-        return 0;
-    }
+    cb = b->callback;
 
-    if (b->callback != NULL || b->callback_ex != NULL) {
-        ret = (int)bio_call_callback(b, BIO_CB_GETS, buf, size, 0, 0L, 1, NULL);
-        if (ret <= 0)
-            return ret;
-    }
+    if ((cb != NULL) && ((i = (int)cb(b, BIO_CB_GETS, in, inl, 0L, 1L)) <= 0))
+        return (i);
 
     if (!b->init) {
         BIOerr(BIO_F_BIO_GETS, BIO_R_UNINITIALIZED);
         return (-2);
     }
 
-    ret = b->method->bgets(b, buf, size);
+    i = b->method->bgets(b, in, inl);
 
-    if (ret > 0) {
-        readbytes = ret;
-        ret = 1;
-    }
-
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = (int)bio_call_callback(b, BIO_CB_GETS | BIO_CB_RETURN, buf, size,
-                                     0, 0L, ret, &readbytes);
-
-    if (ret > 0) {
-        /* Shouldn't happen */
-        if (readbytes > (size_t)size)
-            ret = -1;
-        else
-            ret = (int)readbytes;
-    }
-
-    return ret;
+    if (cb != NULL)
+        i = (int)cb(b, BIO_CB_GETS | BIO_CB_RETURN, in, inl, 0L, (long)i);
+    return (i);
 }
 
 int BIO_indent(BIO *b, int indent, int max)
@@ -509,28 +327,27 @@ void *BIO_ptr_ctrl(BIO *b, int cmd, long larg)
 long BIO_ctrl(BIO *b, int cmd, long larg, void *parg)
 {
     long ret;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if (b == NULL)
-        return 0;
+        return (0);
 
     if ((b->method == NULL) || (b->method->ctrl == NULL)) {
         BIOerr(BIO_F_BIO_CTRL, BIO_R_UNSUPPORTED_METHOD);
-        return -2;
+        return (-2);
     }
 
-    if (b->callback != NULL || b->callback_ex != NULL) {
-        ret = bio_call_callback(b, BIO_CB_CTRL, parg, 0, cmd, larg, 1L, NULL);
-        if (ret <= 0)
-            return ret;
-    }
+    cb = b->callback;
+
+    if ((cb != NULL) &&
+        ((ret = cb(b, BIO_CB_CTRL, parg, cmd, larg, 1L)) <= 0))
+        return (ret);
 
     ret = b->method->ctrl(b, cmd, larg, parg);
 
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = bio_call_callback(b, BIO_CB_CTRL | BIO_CB_RETURN, parg, 0, cmd,
-                                larg, ret, NULL);
-
-    return ret;
+    if (cb != NULL)
+        ret = cb(b, BIO_CB_CTRL | BIO_CB_RETURN, parg, cmd, larg, ret);
+    return (ret);
 }
 
 long BIO_callback_ctrl(BIO *b, int cmd,
@@ -538,6 +355,7 @@ long BIO_callback_ctrl(BIO *b, int cmd,
                                    long, long))
 {
     long ret;
+    long (*cb) (BIO *, int, const char *, int, long, long);
 
     if (b == NULL)
         return (0);
@@ -547,20 +365,17 @@ long BIO_callback_ctrl(BIO *b, int cmd,
         return (-2);
     }
 
-    if (b->callback != NULL || b->callback_ex != NULL) {
-        ret = bio_call_callback(b, BIO_CB_CTRL, (void *)&fp, 0, cmd, 0, 1L,
-                                NULL);
-        if (ret <= 0)
-            return ret;
-    }
+    cb = b->callback;
+
+    if ((cb != NULL) &&
+        ((ret = cb(b, BIO_CB_CTRL, (void *)&fp, cmd, 0, 1L)) <= 0))
+        return (ret);
 
     ret = b->method->callback_ctrl(b, cmd, fp);
 
-    if (b->callback != NULL || b->callback_ex != NULL)
-        ret = bio_call_callback(b, BIO_CB_CTRL | BIO_CB_RETURN, (void *)&fp, 0,
-                                cmd, 0, ret, NULL);
-
-    return ret;
+    if (cb != NULL)
+        ret = cb(b, BIO_CB_CTRL | BIO_CB_RETURN, (void *)&fp, cmd, 0, ret);
+    return (ret);
 }
 
 /*
@@ -703,7 +518,6 @@ BIO *BIO_dup_chain(BIO *in)
         if ((new_bio = BIO_new(bio->method)) == NULL)
             goto err;
         new_bio->callback = bio->callback;
-        new_bio->callback_ex = bio->callback_ex;
         new_bio->cb_arg = bio->cb_arg;
         new_bio->init = bio->init;
         new_bio->shutdown = bio->shutdown;

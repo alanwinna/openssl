@@ -528,17 +528,12 @@ static int aesni_cbc_hmac_sha1_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
             maxpad |= (255 - maxpad) >> (sizeof(maxpad) * 8 - 8);
             maxpad &= 255;
 
-            mask = constant_time_ge(maxpad, pad);
-            ret &= mask;
-            /*
-             * If pad is invalid then we will fail the above test but we must
-             * continue anyway because we are in constant time code. However,
-             * we'll use the maxpad value instead of the supplied pad to make
-             * sure we perform well defined pointer arithmetic.
-             */
-            pad = constant_time_select(mask, pad, maxpad);
+            ret &= constant_time_ge(maxpad, pad);
 
             inp_len = len - (SHA_DIGEST_LENGTH + pad + 1);
+            mask = (0 - ((inp_len - len) >> (sizeof(inp_len) * 8 - 1)));
+            inp_len &= mask;
+            ret &= (int)mask;
 
             key->aux.tls_aad[plen - 2] = inp_len >> 8;
             key->aux.tls_aad[plen - 1] = inp_len;
@@ -570,7 +565,7 @@ static int aesni_cbc_hmac_sha1_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
             }
 # endif
 
-# if 1      /* see original reference version in #else */
+# if 1
             len -= SHA_DIGEST_LENGTH; /* amend mac */
             if (len >= (256 + SHA_CBLOCK)) {
                 j = (len - (256 + SHA_CBLOCK)) & (0 - SHA_CBLOCK);
@@ -664,7 +659,7 @@ static int aesni_cbc_hmac_sha1_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
             }
 #  endif
             len += SHA_DIGEST_LENGTH;
-# else      /* pre-lucky-13 reference version of above */
+# else
             SHA1_Update(&key->md, out, inp_len);
             res = key->md.num;
             SHA1_Final(pmac->c, &key->md);
@@ -691,7 +686,7 @@ static int aesni_cbc_hmac_sha1_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
             /* verify HMAC */
             out += inp_len;
             len -= inp_len;
-# if 1      /* see original reference version in #else */
+# if 1
             {
                 unsigned char *p = out + len - 1 - maxpad - SHA_DIGEST_LENGTH;
                 size_t off = out - p;
@@ -713,7 +708,7 @@ static int aesni_cbc_hmac_sha1_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
                 res = 0 - ((0 - res) >> (sizeof(res) * 8 - 1));
                 ret &= (int)~res;
             }
-# else      /* pre-lucky-13 reference version of above */
+# else
             for (res = 0, i = 0; i < SHA_DIGEST_LENGTH; i++)
                 res |= out[i] ^ pmac->c[i];
             res = 0 - ((0 - res) >> (sizeof(res) * 8 - 1));

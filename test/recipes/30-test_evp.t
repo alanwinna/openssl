@@ -10,16 +10,10 @@
 use strict;
 use warnings;
 
-use OpenSSL::Test qw/:DEFAULT data_file/;
+use OpenSSL::Test qw/:DEFAULT srctop_file/;
 
 setup("test_evp");
 
-my @files = ( "evpciph.txt", "evpdigest.txt", "evpencod.txt", "evpkdf.txt",
-    "evpmac.txt", "evppbe.txt", "evppkey.txt" );
-
-plan tests => scalar(@files);
-
-foreach my $f ( @files ) {
-    ok(run(test(["evp_test", data_file("$f")])),
-       "running evp_test $f");
-}
+plan tests => 1;
+ok(run(test(["evp_test", srctop_file("test", "evptests.txt")])),
+   "running evp_test evptests.txt");

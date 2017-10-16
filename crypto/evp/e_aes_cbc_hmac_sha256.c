@@ -453,12 +453,10 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
          * to identify it and avoid stitch invocation. So that after we
          * establish that current CPU supports AVX, we even see if it's
          * either even XOP-capable Bulldozer-based or GenuineIntel one.
-         * But SHAEXT-capable go ahead...
          */
-        if (((OPENSSL_ia32cap_P[2] & (1 << 29)) ||         /* SHAEXT? */
-             ((OPENSSL_ia32cap_P[1] & (1 << (60 - 32))) && /* AVX? */
-              ((OPENSSL_ia32cap_P[1] & (1 << (43 - 32)))   /* XOP? */
-               | (OPENSSL_ia32cap_P[0] & (1 << 30))))) &&  /* "Intel CPU"? */
+        if (OPENSSL_ia32cap_P[1] & (1 << (60 - 32)) && /* AVX? */
+            ((OPENSSL_ia32cap_P[1] & (1 << (43 - 32))) /* XOP? */
+             | (OPENSSL_ia32cap_P[0] & (1<<30))) &&    /* "Intel CPU"? */
             plen > (sha_off + iv) &&
             (blocks = (plen - (sha_off + iv)) / SHA256_CBLOCK)) {
             SHA256_Update(&key->md, in + iv, sha_off);
@@ -540,17 +538,12 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
             maxpad |= (255 - maxpad) >> (sizeof(maxpad) * 8 - 8);
             maxpad &= 255;
 
-            mask = constant_time_ge(maxpad, pad);
-            ret &= mask;
-            /*
-             * If pad is invalid then we will fail the above test but we must
-             * continue anyway because we are in constant time code. However,
-             * we'll use the maxpad value instead of the supplied pad to make
-             * sure we perform well defined pointer arithmetic.
-             */
-            pad = constant_time_select(mask, pad, maxpad);
+            ret &= constant_time_ge(maxpad, pad);
 
             inp_len = len - (SHA256_DIGEST_LENGTH + pad + 1);
+            mask = (0 - ((inp_len - len) >> (sizeof(inp_len) * 8 - 1)));
+            inp_len &= mask;
+            ret &= (int)mask;
 
             key->aux.tls_aad[plen - 2] = inp_len >> 8;
             key->aux.tls_aad[plen - 1] = inp_len;
@@ -559,7 +552,7 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
             key->md = key->head;
             SHA256_Update(&key->md, key->aux.tls_aad, plen);
 
-# if 1      /* see original reference version in #else */
+# if 1
             len -= SHA256_DIGEST_LENGTH; /* amend mac */
             if (len >= (256 + SHA256_CBLOCK)) {
                 j = (len - (256 + SHA256_CBLOCK)) & (0 - SHA256_CBLOCK);
@@ -687,7 +680,7 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
                 for (; inp_blocks < pad_blocks; inp_blocks++)
                     sha1_block_data_order(&key->md, data, 1);
             }
-# endif      /* pre-lucky-13 reference version of above */
+# endif
             key->md = key->tail;
             SHA256_Update(&key->md, pmac->c, SHA256_DIGEST_LENGTH);
             SHA256_Final(pmac->c, &key->md);
@@ -695,7 +688,7 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
             /* verify HMAC */
             out += inp_len;
             len -= inp_len;
-# if 1      /* see original reference version in #else */
+# if 1
             {
                 unsigned char *p =
                     out + len - 1 - maxpad - SHA256_DIGEST_LENGTH;
@@ -718,7 +711,7 @@ static int aesni_cbc_hmac_sha256_cipher(EVP_CIPHER_CTX *ctx,
                 res = 0 - ((0 - res) >> (sizeof(res) * 8 - 1));
                 ret &= (int)~res;
             }
-# else      /* pre-lucky-13 reference version of above */
+# else
             for (res = 0, i = 0; i < SHA256_DIGEST_LENGTH; i++)
                 res |= out[i] ^ pmac->c[i];
             res = 0 - ((0 - res) >> (sizeof(res) * 8 - 1));

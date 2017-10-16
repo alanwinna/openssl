@@ -1,5 +1,5 @@
 .ident	"sparcv8plus.s, Version 1.4"
-.ident	"SPARC v9 ISA artwork by Andy Polyakov <appro@openssl.org>"
+.ident	"SPARC v9 ISA artwork by Andy Polyakov <appro@fy.chalmers.se>"
 
 /*
  * ====================================================================
@@ -143,6 +143,10 @@
  *		op(p+3); return;
  *	    }
  */
+
+#ifdef OPENSSL_FIPSCANISTER
+#include <openssl/fipssyms.h>
+#endif
 
 #if defined(__SUNPRO_C) && defined(__sparcv9)
   /* They've said -xarch=v9 at command line */

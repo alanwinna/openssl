@@ -8,7 +8,6 @@
  */
 
 #include <openssl/crypto.h>
-#include "internal/cryptlib.h"
 
 #if !defined(OPENSSL_THREADS) || defined(CRYPTO_TDEBUG)
 
@@ -25,22 +24,19 @@ CRYPTO_RWLOCK *CRYPTO_THREAD_lock_new(void)
 
 int CRYPTO_THREAD_read_lock(CRYPTO_RWLOCK *lock)
 {
-    if (!ossl_assert(*(unsigned int *)lock == 1))
-        return 0;
+    OPENSSL_assert(*(unsigned int *)lock == 1);
     return 1;
 }
 
 int CRYPTO_THREAD_write_lock(CRYPTO_RWLOCK *lock)
 {
-    if (!ossl_assert(*(unsigned int *)lock == 1))
-        return 0;
+    OPENSSL_assert(*(unsigned int *)lock == 1);
     return 1;
 }
 
 int CRYPTO_THREAD_unlock(CRYPTO_RWLOCK *lock)
 {
-    if (!ossl_assert(*(unsigned int *)lock == 1))
-        return 0;
+    OPENSSL_assert(*(unsigned int *)lock == 1);
     return 1;
 }
 
@@ -123,23 +119,6 @@ int CRYPTO_atomic_add(int *val, int amount, int *ret, CRYPTO_RWLOCK *lock)
     *ret  = *val;
 
     return 1;
-}
-
-int CRYPTO_atomic_read(int *val, int *ret, CRYPTO_RWLOCK *lock)
-{
-    *ret = *val;
-    return 1;
-}
-
-int CRYPTO_atomic_write(int *val, int n, CRYPTO_RWLOCK *lock)
-{
-    *val = n;
-    return 1;
-}
-
-int openssl_init_fork_handlers(void)
-{
-    return 0;
 }
 
 #endif

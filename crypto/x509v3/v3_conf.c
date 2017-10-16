@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1999-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -10,7 +10,7 @@
 /* extension creation utilities */
 
 #include <stdio.h>
-#include "internal/ctype.h"
+#include <ctype.h>
 #include "internal/cryptlib.h"
 #include <openssl/conf.h>
 #include <openssl/x509.h>
@@ -192,7 +192,7 @@ static int v3_check_critical(const char **value)
     if ((strlen(p) < 9) || strncmp(p, "critical,", 9))
         return 0;
     p += 9;
-    while (ossl_isspace(*p))
+    while (isspace((unsigned char)*p))
         p++;
     *value = p;
     return 1;
@@ -212,7 +212,7 @@ static int v3_check_generic(const char **value)
     } else
         return 0;
 
-    while (ossl_isspace(*p))
+    while (isspace((unsigned char)*p))
         p++;
     *value = p;
     return gen_type;

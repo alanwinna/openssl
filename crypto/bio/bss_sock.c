@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#define USE_SOCKETS
 #include "bio_lcl.h"
 #include "internal/cryptlib.h"
 
@@ -37,11 +38,7 @@ int BIO_sock_should_retry(int s);
 static const BIO_METHOD methods_sockp = {
     BIO_TYPE_SOCKET,
     "socket",
-    /* TODO: Convert to new style write function */
-    bwrite_conv,
     sock_write,
-    /* TODO: Convert to new style read function */
-    bread_conv,
     sock_read,
     sock_puts,
     NULL,                       /* sock_gets, */
@@ -73,7 +70,7 @@ static int sock_new(BIO *bi)
     bi->num = 0;
     bi->ptr = NULL;
     bi->flags = 0;
-    return 1;
+    return (1);
 }
 
 static int sock_free(BIO *a)
@@ -87,7 +84,7 @@ static int sock_free(BIO *a)
         a->init = 0;
         a->flags = 0;
     }
-    return 1;
+    return (1);
 }
 
 static int sock_read(BIO *b, char *out, int outl)
@@ -223,7 +220,8 @@ int BIO_sock_non_fatal_error(int err)
 # ifdef EALREADY
     case EALREADY:
 # endif
-        return 1;
+        return (1);
+        /* break; */
     default:
         break;
     }

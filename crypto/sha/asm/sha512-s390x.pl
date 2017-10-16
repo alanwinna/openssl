@@ -8,7 +8,7 @@
 
 
 # ====================================================================
-# Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
+# Written by Andy Polyakov <appro@fy.chalmers.se> for the OpenSSL
 # project. The module is, however, dual licensed under OpenSSL and
 # CRYPTOGAMS licenses depending on where you obtain it. For further
 # details see http://www.openssl.org/~appro/cryptogams/.
@@ -311,7 +311,7 @@ $code.=<<___;
 	cl${g}	$inp,`$frame+4*$SIZE_T`($sp)
 	jne	.Lloop
 
-	lm${g}	%r6,%r15,`$frame+6*$SIZE_T`($sp)
+	lm${g}	%r6,%r15,`$frame+6*$SIZE_T`($sp)	
 	br	%r14
 .size	$Func,.-$Func
 .string	"SHA${label} block transform for s390x, CRYPTOGAMS by <appro\@openssl.org>"

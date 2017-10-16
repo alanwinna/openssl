@@ -8,7 +8,7 @@
  */
 
 /*-
-        From: Arne Ansper
+        From: Arne Ansper <arne@cyber.ee>
 
         Why BIO_f_reliable?
 
@@ -109,11 +109,7 @@ typedef struct ok_struct {
 
 static const BIO_METHOD methods_ok = {
     BIO_TYPE_CIPHER, "reliable",
-    /* TODO: Convert to new style write function */
-    bwrite_conv,
     ok_write,
-    /* TODO: Convert to new style read function */
-    bread_conv,
     ok_read,
     NULL,                       /* ok_puts, */
     NULL,                       /* ok_gets, */

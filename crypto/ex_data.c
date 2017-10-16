@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -9,6 +9,7 @@
 
 #include "internal/cryptlib_int.h"
 #include "internal/thread_once.h"
+#include <openssl/lhash.h>
 
 /*
  * Each structure type (sometimes called a class), that supports
@@ -38,7 +39,7 @@ static CRYPTO_ONCE ex_data_init = CRYPTO_ONCE_STATIC_INIT;
 DEFINE_RUN_ONCE_STATIC(do_ex_data_init)
 {
     OPENSSL_init_crypto(0, NULL);
-    ex_data_lock = CRYPTO_THREAD_glock_new("ex_data");
+    ex_data_lock = CRYPTO_THREAD_lock_new();
     return ex_data_lock != NULL;
 }
 
@@ -286,14 +287,7 @@ int CRYPTO_dup_ex_data(int class_index, CRYPTO_EX_DATA *to,
         CRYPTOerr(CRYPTO_F_CRYPTO_DUP_EX_DATA, ERR_R_MALLOC_FAILURE);
         return 0;
     }
-    /*
-     * Make sure the ex_data stack is at least |mx| elements long to avoid
-     * issues in the for loop that follows; so go get the |mx|'th element
-     * (if it does not exist CRYPTO_get_ex_data() returns NULL), and assign
-     * to itself. This is normally a no-op; but ensures the stack is the
-     * proper size
-     */
-    if (!CRYPTO_set_ex_data(to, mx - 1, CRYPTO_get_ex_data(to, mx - 1)))
+    if (!CRYPTO_set_ex_data(to, mx - 1, NULL))
         goto err;
 
     for (i = 0; i < mx; i++) {

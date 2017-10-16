@@ -1,11 +1,21 @@
 /*
- * Copyright 2002-2017 The OpenSSL Project Authors. All Rights Reserved.
- * Copyright (c) 2002, Oracle and/or its affiliates. All rights reserved
+ * Copyright 2002-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
  * https://www.openssl.org/source/license.html
+ */
+
+/* ====================================================================
+ * Copyright 2002 Sun Microsystems, Inc. ALL RIGHTS RESERVED.
+ *
+ * The Elliptic Curve Public-Key Crypto Library (ECC Code) included
+ * herein is developed by SUN MICROSYSTEMS, INC., and is contributed
+ * to the OpenSSL project.
+ *
+ * The ECC Code is licensed pursuant to the OpenSSL open source
+ * license provided below.
  */
 
 #include <assert.h>
@@ -557,11 +567,13 @@ int BN_GF2m_mod_inv(BIGNUM *r, const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
 
     BN_CTX_start(ctx);
 
-    b = BN_CTX_get(ctx);
-    c = BN_CTX_get(ctx);
-    u = BN_CTX_get(ctx);
-    v = BN_CTX_get(ctx);
-    if (v == NULL)
+    if ((b = BN_CTX_get(ctx)) == NULL)
+        goto err;
+    if ((c = BN_CTX_get(ctx)) == NULL)
+        goto err;
+    if ((u = BN_CTX_get(ctx)) == NULL)
+        goto err;
+    if ((v = BN_CTX_get(ctx)) == NULL)
         goto err;
 
     if (!BN_GF2m_mod(u, a, p))
@@ -1077,7 +1089,7 @@ int BN_GF2m_mod_solve_quad_arr(BIGNUM *r, const BIGNUM *a_, const int p[],
         if (tmp == NULL)
             goto err;
         do {
-            if (!BN_priv_rand(rho, p[0], BN_RAND_TOP_ONE, BN_RAND_BOTTOM_ANY))
+            if (!BN_rand(rho, p[0], BN_RAND_TOP_ONE, BN_RAND_BOTTOM_ANY))
                 goto err;
             if (!BN_GF2m_mod_arr(rho, rho, p))
                 goto err;

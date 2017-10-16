@@ -34,6 +34,7 @@
 # define ASYNC_WIN
 #endif
 
+#define DASYNC_LIB_NAME "DASYNC"
 #include "e_dasync_err.c"
 
 /* Engine Id and Name */

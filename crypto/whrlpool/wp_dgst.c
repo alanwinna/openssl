@@ -10,6 +10,14 @@
 /**
  * The Whirlpool hashing function.
  *
+ * <P>
+ * <b>References</b>
+ *
+ * <P>
+ * The Whirlpool algorithm was developed by
+ * <a href="mailto:pbarreto@scopus.com.br">Paulo S. L. M. Barreto</a> and
+ * <a href="mailto:vincent.rijmen@cryptomathic.com">Vincent Rijmen</a>.
+ *
  * See
  *      P.S.L.M. Barreto, V. Rijmen,
  *      ``The Whirlpool hashing function,''
@@ -59,7 +67,7 @@
 int WHIRLPOOL_Init(WHIRLPOOL_CTX *c)
 {
     memset(c, 0, sizeof(*c));
-    return 1;
+    return (1);
 }
 
 int WHIRLPOOL_Update(WHIRLPOOL_CTX *c, const void *_inp, size_t bytes)
@@ -80,7 +88,7 @@ int WHIRLPOOL_Update(WHIRLPOOL_CTX *c, const void *_inp, size_t bytes)
     if (bytes)
         WHIRLPOOL_BitUpdate(c, inp, bytes * 8);
 
-    return 1;
+    return (1);
 }
 
 void WHIRLPOOL_BitUpdate(WHIRLPOOL_CTX *c, const void *_inp, size_t bits)
@@ -166,7 +174,7 @@ void WHIRLPOOL_BitUpdate(WHIRLPOOL_CTX *c, const void *_inp, size_t bits)
                 goto reconsider;
             } else
 #endif
-            if (bits > 8) {
+            if (bits >= 8) {
                 b = ((inp[0] << inpgap) | (inp[1] >> (8 - inpgap)));
                 b &= 0xff;
                 if (bitrem)
@@ -183,7 +191,7 @@ void WHIRLPOOL_BitUpdate(WHIRLPOOL_CTX *c, const void *_inp, size_t bits)
                 }
                 if (bitrem)
                     c->data[byteoff] = b << (8 - bitrem);
-            } else {            /* remaining less than or equal to 8 bits */
+            } else {            /* remaining less than 8 bits */
 
                 b = (inp[0] << inpgap) & 0xff;
                 if (bitrem)
@@ -239,7 +247,7 @@ int WHIRLPOOL_Final(unsigned char *md, WHIRLPOOL_CTX *c)
     if (md) {
         memcpy(md, c->H.c, WHIRLPOOL_DIGEST_LENGTH);
         OPENSSL_cleanse(c, sizeof(*c));
-        return 1;
+        return (1);
     }
     return (0);
 }

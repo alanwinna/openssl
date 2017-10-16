@@ -638,7 +638,6 @@ int X509_policy_check(X509_POLICY_TREE **ptree, int *pexplicit_policy,
 {
     int init_ret;
     int ret;
-    int calc_ret;
     X509_POLICY_TREE *tree = NULL;
     STACK_OF(X509_POLICY_NODE) *nodes, *auth_nodes = NULL;
 
@@ -676,14 +675,11 @@ int X509_policy_check(X509_POLICY_TREE **ptree, int *pexplicit_policy,
     }
 
     /* Tree is not empty: continue */
-
-    if ((calc_ret = tree_calculate_authority_set(tree, &auth_nodes)) == 0)
+    if ((ret = tree_calculate_authority_set(tree, &auth_nodes)) == 0 ||
+        !tree_calculate_user_set(tree, policy_oids, auth_nodes))
         goto error;
-    ret = tree_calculate_user_set(tree, policy_oids, auth_nodes);
-    if (calc_ret == TREE_CALC_OK_DOFREE)
+    if (ret == TREE_CALC_OK_DOFREE)
         sk_X509_POLICY_NODE_free(auth_nodes);
-    if (!ret)
-        goto error;
 
     *ptree = tree;
 

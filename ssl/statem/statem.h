@@ -27,9 +27,7 @@ typedef enum {
     /* We're working on phase A */
     WORK_MORE_A,
     /* We're working on phase B */
-    WORK_MORE_B,
-    /* We're working on phase C */
-    WORK_MORE_C
+    WORK_MORE_B
 } WORK_STATE;
 
 /* Write transition return codes */
@@ -48,6 +46,8 @@ typedef enum {
     MSG_FLOW_UNINITED,
     /* A permanent error with this connection */
     MSG_FLOW_ERROR,
+    /* We are about to renegotiate */
+    MSG_FLOW_RENEGOTIATE,
     /* We are reading messages */
     MSG_FLOW_READING,
     /* We are writing messages */
@@ -86,17 +86,10 @@ struct ossl_statem_st {
     READ_STATE read_state;
     WORK_STATE read_state_work;
     OSSL_HANDSHAKE_STATE hand_state;
-    /* The handshake state requested by an API call (e.g. HelloRequest) */
-    OSSL_HANDSHAKE_STATE request_state;
     int in_init;
     int read_state_first_init;
     /* true when we are actually in SSL_accept() or SSL_connect() */
     int in_handshake;
-    /*
-     * True when are processing a "real" handshake that needs cleaning up (not
-     * just a HelloRequest or similar).
-     */
-    int cleanuphand;
     /* Should we skip the CertificateVerify message? */
     unsigned int no_cert_verify;
     int use_timer;
@@ -119,7 +112,5 @@ int ossl_statem_in_error(const SSL *s);
 void ossl_statem_set_in_init(SSL *s, int init);
 int ossl_statem_get_in_handshake(SSL *s);
 void ossl_statem_set_in_handshake(SSL *s, int inhand);
-__owur int ossl_statem_skip_early_data(SSL *s);
-void ossl_statem_check_finish_init(SSL *s, int send);
 void ossl_statem_set_hello_verify_done(SSL *s);
 __owur int ossl_statem_app_data_allowed(SSL *s);

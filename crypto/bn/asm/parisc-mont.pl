@@ -8,7 +8,7 @@
 
 
 # ====================================================================
-# Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
+# Written by Andy Polyakov <appro@fy.chalmers.se> for the OpenSSL
 # project. The module is, however, dual licensed under OpenSSL and
 # CRYPTOGAMS licenses depending on where you obtain it. For further
 # details see http://www.openssl.org/~appro/cryptogams/.
@@ -546,7 +546,7 @@ L\$copy
 	ldd		$idx($np),$hi0
 	std,ma		%r0,8($tp)
 	addib,<>	8,$idx,.-8		; L\$copy
-	std,ma		$hi0,8($rp)
+	std,ma		$hi0,8($rp)	
 ___
 
 if ($BN_SZ==4) {				# PA-RISC 1.1 code-path
@@ -868,7 +868,7 @@ L\$copy_pa11
 	ldwx		$idx($np),$hi0
 	stws,ma		%r0,4($tp)
 	addib,<>	4,$idx,L\$copy_pa11
-	stws,ma		$hi0,4($rp)
+	stws,ma		$hi0,4($rp)	
 
 	nop					; alignment
 L\$done

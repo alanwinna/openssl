@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -8,7 +8,7 @@
  */
 
 #include <stdio.h>
-#include "internal/ctype.h"
+#include <ctype.h>
 #include "internal/cryptlib.h"
 #include <openssl/asn1t.h>
 #include <openssl/x509.h>
@@ -398,12 +398,11 @@ static int asn1_string_canon(ASN1_STRING *out, const ASN1_STRING *in)
     /*
      * Convert string in place to canonical form. Ultimately we may need to
      * handle a wider range of characters but for now ignore anything with
-     * MSB set and rely on the ossl_isspace() to fail on bad characters without
-     * needing isascii or range checks as well.
+     * MSB set and rely on the isspace() and tolower() functions.
      */
 
     /* Ignore leading spaces */
-    while (len > 0 && ossl_isspace(*from)) {
+    while ((len > 0) && !(*from & 0x80) && isspace(*from)) {
         from++;
         len--;
     }
@@ -411,7 +410,7 @@ static int asn1_string_canon(ASN1_STRING *out, const ASN1_STRING *in)
     to = from + len;
 
     /* Ignore trailing spaces */
-    while (len > 0 && ossl_isspace(to[-1])) {
+    while ((len > 0) && !(to[-1] & 0x80) && isspace(to[-1])) {
         to--;
         len--;
     }
@@ -420,13 +419,13 @@ static int asn1_string_canon(ASN1_STRING *out, const ASN1_STRING *in)
 
     i = 0;
     while (i < len) {
-        /* If not ASCII set just copy across */
-        if (!ossl_isascii(*from)) {
+        /* If MSB set just copy across */
+        if (*from & 0x80) {
             *to++ = *from++;
             i++;
         }
         /* Collapse multiple spaces */
-        else if (ossl_isspace(*from)) {
+        else if (isspace(*from)) {
             /* Copy one space across */
             *to++ = ' ';
             /*
@@ -438,9 +437,9 @@ static int asn1_string_canon(ASN1_STRING *out, const ASN1_STRING *in)
                 from++;
                 i++;
             }
-            while (ossl_isspace(*from));
+            while (!(*from & 0x80) && isspace(*from));
         } else {
-            *to++ = ossl_tolower(*from);
+            *to++ = tolower(*from);
             from++;
             i++;
         }
@@ -473,11 +472,19 @@ static int i2d_name_canon(STACK_OF(STACK_OF_X509_NAME_ENTRY) * _intname,
 
 int X509_NAME_set(X509_NAME **xn, X509_NAME *name)
 {
-    if ((name = X509_NAME_dup(name)) == NULL)
-        return 0;
-    X509_NAME_free(*xn);
-    *xn = name;
-    return 1;
+    X509_NAME *in;
+
+    if (!xn || !name)
+        return (0);
+
+    if (*xn != name) {
+        in = X509_NAME_dup(name);
+        if (in != NULL) {
+            X509_NAME_free(*xn);
+            *xn = in;
+        }
+    }
+    return (*xn != NULL);
 }
 
 int X509_NAME_print(BIO *bp, const X509_NAME *name, int obase)
@@ -498,10 +505,19 @@ int X509_NAME_print(BIO *bp, const X509_NAME *name, int obase)
 
     c = s;
     for (;;) {
+#ifndef CHARSET_EBCDIC
         if (((*s == '/') &&
-             (ossl_isupper(s[1]) && ((s[2] == '=') ||
-                                (ossl_isupper(s[2]) && (s[3] == '='))
+             ((s[1] >= 'A') && (s[1] <= 'Z') && ((s[2] == '=') ||
+                                                 ((s[2] >= 'A')
+                                                  && (s[2] <= 'Z')
+                                                  && (s[3] == '='))
               ))) || (*s == '\0'))
+#else
+        if (((*s == '/') &&
+             (isupper(s[1]) && ((s[2] == '=') ||
+                                (isupper(s[2]) && (s[3] == '='))
+              ))) || (*s == '\0'))
+#endif
         {
             i = s - c;
             if (BIO_write(bp, c, i) != i)

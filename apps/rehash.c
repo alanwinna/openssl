@@ -1,11 +1,16 @@
 /*
- * Copyright 2015-2017 The OpenSSL Project Authors. All Rights Reserved.
- * Copyright (c) 2013-2014 Timo Ter‰s <timo.teras@gmail.com>
+ * Copyright 2015-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
  * https://www.openssl.org/source/license.html
+ */
+
+/*
+ * C implementation based on the original Perl and shell versions
+ *
+ * Copyright (c) 2013-2014 Timo Ter√§s <timo.teras@iki.fi>
  */
 
 #include "apps.h"
@@ -249,11 +254,11 @@ static int do_file(const char *filename, const char *fullpath, enum Hash h)
         goto end;
     }
     x = sk_X509_INFO_value(inf, 0);
-    if (x->x509 != NULL) {
+    if (x->x509) {
         type = TYPE_CERT;
         name = X509_get_subject_name(x->x509);
         X509_digest(x->x509, evpmd, digest, NULL);
-    } else if (x->crl != NULL) {
+    } else if (x->crl) {
         type = TYPE_CRL;
         name = X509_CRL_get_issuer(x->crl);
         X509_CRL_digest(x->crl, evpmd, digest, NULL);
@@ -261,7 +266,7 @@ static int do_file(const char *filename, const char *fullpath, enum Hash h)
         ++errs;
         goto end;
     }
-    if (name != NULL) {
+    if (name) {
         if ((h == HASH_NEW) || (h == HASH_BOTH))
             errs += add_entry(type, X509_NAME_hash(name), filename, digest, 1, ~0);
         if ((h == HASH_OLD) || (h == HASH_BOTH))
@@ -300,7 +305,7 @@ static int massage_filename(char *name)
 
     if (q != NULL) {
         for (q++; *q != '\0'; q++) {
-            if (!isdigit((unsigned char)*q))
+            if (!isdigit(*q))
                 return 1;
         }
     }
@@ -443,7 +448,7 @@ typedef enum OPTION_choice {
     OPT_COMPAT, OPT_OLD, OPT_N, OPT_VERBOSE
 } OPTION_CHOICE;
 
-const OPTIONS rehash_options[] = {
+OPTIONS rehash_options[] = {
     {OPT_HELP_STR, 1, '-', "Usage: %s [options] [cert-directory...]\n"},
     {OPT_HELP_STR, 1, '-', "Valid options are:\n"},
     {"help", OPT_HELP, '-', "Display this summary"},
@@ -494,8 +499,8 @@ int rehash_main(int argc, char **argv)
     evpmd = EVP_sha1();
     evpmdsize = EVP_MD_size(evpmd);
 
-    if (*argv != NULL) {
-        while (*argv != NULL)
+    if (*argv) {
+        while (*argv)
             errs += do_dir(*argv++, h);
     } else if ((env = getenv("SSL_CERT_DIR")) != NULL) {
         m = OPENSSL_strdup(env);
@@ -511,14 +516,14 @@ int rehash_main(int argc, char **argv)
 }
 
 #else
-const OPTIONS rehash_options[] = {
+OPTIONS rehash_options[] = {
     {NULL}
 };
 
 int rehash_main(int argc, char **argv)
 {
     BIO_printf(bio_err, "Not available; use c_rehash script\n");
-    return 1;
+    return (1);
 }
 
 #endif /* defined(OPENSSL_SYS_UNIX) || defined(__APPLE__) */

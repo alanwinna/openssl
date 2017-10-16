@@ -1,5 +1,5 @@
 /*
- * Copyright 1995-2017 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2016 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -64,8 +64,6 @@ static int add_DN_object(X509_NAME *n, char *text, const char *def,
 static int genpkey_cb(EVP_PKEY_CTX *ctx);
 static int req_check_len(int len, int n_min, int n_max);
 static int check_end(const char *str, const char *end);
-static int join(char buf[], size_t buf_size, const char *name,
-                const char *tail, const char *desc);
 static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
                                     int *pkey_type, long *pkeylen,
                                     char **palgnam, ENGINE *keygen_engine);
@@ -76,16 +74,15 @@ typedef enum OPTION_choice {
     OPT_ERR = -1, OPT_EOF = 0, OPT_HELP,
     OPT_INFORM, OPT_OUTFORM, OPT_ENGINE, OPT_KEYGEN_ENGINE, OPT_KEY,
     OPT_PUBKEY, OPT_NEW, OPT_CONFIG, OPT_KEYFORM, OPT_IN, OPT_OUT,
-    OPT_KEYOUT, OPT_PASSIN, OPT_PASSOUT, OPT_NEWKEY,
+    OPT_KEYOUT, OPT_PASSIN, OPT_PASSOUT, OPT_RAND, OPT_NEWKEY,
     OPT_PKEYOPT, OPT_SIGOPT, OPT_BATCH, OPT_NEWHDR, OPT_MODULUS,
     OPT_VERIFY, OPT_NODES, OPT_NOOUT, OPT_VERBOSE, OPT_UTF8,
     OPT_NAMEOPT, OPT_REQOPT, OPT_SUBJ, OPT_SUBJECT, OPT_TEXT, OPT_X509,
     OPT_MULTIVALUE_RDN, OPT_DAYS, OPT_SET_SERIAL, OPT_EXTENSIONS,
-    OPT_REQEXTS, OPT_PRECERT, OPT_MD,
-    OPT_R_ENUM
+    OPT_REQEXTS, OPT_MD
 } OPTION_CHOICE;
 
-const OPTIONS req_options[] = {
+OPTIONS req_options[] = {
     {"help", OPT_HELP, '-', "Display this summary"},
     {"inform", OPT_INFORM, 'F', "Input format - DER or PEM"},
     {"outform", OPT_OUTFORM, 'F', "Output format - DER or PEM"},
@@ -99,7 +96,8 @@ const OPTIONS req_options[] = {
     {"keyout", OPT_KEYOUT, '>', "File to send the key to"},
     {"passin", OPT_PASSIN, 's', "Private key password source"},
     {"passout", OPT_PASSOUT, 's', "Output file pass phrase source"},
-    OPT_R_OPTIONS,
+    {"rand", OPT_RAND, 's',
+     "Load the file(s) into the random number generator"},
     {"newkey", OPT_NEWKEY, 's', "Specify as type:bits"},
     {"pkeyopt", OPT_PKEYOPT, 's', "Public key options as opt:value"},
     {"sigopt", OPT_SIGOPT, 's', "Signature parameter in n:v form"},
@@ -128,7 +126,6 @@ const OPTIONS req_options[] = {
      "Cert extension section (override value in config file)"},
     {"reqexts", OPT_REQEXTS, 's',
      "Request extension section (override value in config file)"},
-    {"precert", OPT_PRECERT, '-', "Add a poison extension (implies -new)"},
     {"", OPT_MD, '-', "Any supported digest"},
 #ifndef OPENSSL_NO_ENGINE
     {"engine", OPT_ENGINE, 's', "Use engine, possibly a hardware device"},
@@ -151,7 +148,7 @@ int req_main(int argc, char **argv)
     const EVP_CIPHER *cipher = NULL;
     const EVP_MD *md_alg = NULL, *digest = NULL;
     char *extensions = NULL, *infile = NULL;
-    char *outfile = NULL, *keyfile = NULL;
+    char *outfile = NULL, *keyfile = NULL, *inrand = NULL;
     char *keyalgstr = NULL, *p, *prog, *passargin = NULL, *passargout = NULL;
     char *passin = NULL, *passout = NULL;
     char *nofree_passin = NULL, *nofree_passout = NULL;
@@ -163,9 +160,10 @@ int req_main(int argc, char **argv)
     int pkey_type = -1, private = 0;
     int informat = FORMAT_PEM, outformat = FORMAT_PEM, keyform = FORMAT_PEM;
     int modulus = 0, multirdn = 0, verify = 0, noout = 0, text = 0;
-    int nodes = 0, newhdr = 0, subject = 0, pubkey = 0, precert = 0;
+    int nodes = 0, newhdr = 0, subject = 0, pubkey = 0;
     long newkey = -1;
-    unsigned long chtype = MBSTRING_ASC, reqflag = 0;
+    unsigned long chtype = MBSTRING_ASC, nmflag = 0, reqflag = 0;
+    char nmflag_set = 0;
 
 #ifndef OPENSSL_NO_DES
     cipher = EVP_des_ede3_cbc();
@@ -234,9 +232,8 @@ int req_main(int argc, char **argv)
         case OPT_PASSOUT:
             passargout = opt_arg();
             break;
-        case OPT_R_CASES:
-            if (!opt_rand(o))
-                goto end;
+        case OPT_RAND:
+            inrand = opt_arg();
             break;
         case OPT_NEWKEY:
             keyalg = opt_arg();
@@ -279,7 +276,8 @@ int req_main(int argc, char **argv)
             chtype = MBSTRING_UTF8;
             break;
         case OPT_NAMEOPT:
-            if (!set_nameopt(opt_arg()))
+            nmflag_set = 1;
+            if (!set_name_ex(&nmflag, opt_arg()))
                 goto opthelp;
             break;
         case OPT_REQOPT:
@@ -319,9 +317,6 @@ int req_main(int argc, char **argv)
         case OPT_REQEXTS:
             req_exts = opt_arg();
             break;
-        case OPT_PRECERT:
-            newreq = precert = 1;
-            break;
         case OPT_MD:
             if (!opt_md(opt_unknown(), &md_alg))
                 goto opthelp;
@@ -335,6 +330,9 @@ int req_main(int argc, char **argv)
 
     if (x509 && infile == NULL)
         newreq = 1;
+
+    if (!nmflag_set)
+        nmflag = XN_FLAG_ONELINE;
 
     /* TODO: simplify this as pkey is still always NULL here */
     private = newreq && (pkey == NULL) ? 1 : 0;
@@ -374,21 +372,21 @@ int req_main(int argc, char **argv)
 
     if (md_alg == NULL) {
         p = NCONF_get_string(req_conf, SECTION, "default_md");
-        if (p == NULL) {
+        if (p == NULL)
             ERR_clear_error();
-        } else {
+        else {
             if (!opt_md(p, &md_alg))
                 goto opthelp;
             digest = md_alg;
         }
     }
 
-    if (extensions == NULL) {
+    if (!extensions) {
         extensions = NCONF_get_string(req_conf, SECTION, V3_EXTENSIONS);
-        if (extensions == NULL)
+        if (!extensions)
             ERR_clear_error();
     }
-    if (extensions != NULL) {
+    if (extensions) {
         /* Check syntax of file */
         X509V3_CTX ctx;
         X509V3_set_ctx_test(&ctx);
@@ -415,28 +413,28 @@ int req_main(int argc, char **argv)
     }
 
     p = NCONF_get_string(req_conf, SECTION, STRING_MASK);
-    if (p == NULL)
+    if (!p)
         ERR_clear_error();
 
-    if (p != NULL && !ASN1_STRING_set_default_mask_asc(p)) {
+    if (p && !ASN1_STRING_set_default_mask_asc(p)) {
         BIO_printf(bio_err, "Invalid global string mask setting %s\n", p);
         goto end;
     }
 
     if (chtype != MBSTRING_UTF8) {
         p = NCONF_get_string(req_conf, SECTION, UTF8_IN);
-        if (p == NULL)
+        if (!p)
             ERR_clear_error();
         else if (strcmp(p, "yes") == 0)
             chtype = MBSTRING_UTF8;
     }
 
-    if (req_exts == NULL) {
+    if (!req_exts) {
         req_exts = NCONF_get_string(req_conf, SECTION, REQ_EXTENSIONS);
-        if (req_exts == NULL)
+        if (!req_exts)
             ERR_clear_error();
     }
-    if (req_exts != NULL) {
+    if (req_exts) {
         /* Check syntax of file */
         X509V3_CTX ctx;
         X509V3_set_ctx_test(&ctx);
@@ -451,25 +449,33 @@ int req_main(int argc, char **argv)
 
     if (keyfile != NULL) {
         pkey = load_key(keyfile, keyform, 0, passin, e, "Private Key");
-        if (pkey == NULL) {
+        if (!pkey) {
             /* load_key() has already printed an appropriate message */
             goto end;
         } else {
-            app_RAND_load_conf(req_conf, SECTION);
+            char *randfile = NCONF_get_string(req_conf, SECTION, "RANDFILE");
+            if (randfile == NULL)
+                ERR_clear_error();
+            app_RAND_load_file(randfile, 0);
         }
     }
 
     if (newreq && (pkey == NULL)) {
-        app_RAND_load_conf(req_conf, SECTION);
+        char *randfile = NCONF_get_string(req_conf, SECTION, "RANDFILE");
+        if (randfile == NULL)
+            ERR_clear_error();
+        app_RAND_load_file(randfile, 0);
+        if (inrand)
+            app_RAND_load_files(inrand);
 
         if (!NCONF_get_number(req_conf, SECTION, BITS, &newkey)) {
             newkey = DEFAULT_KEY_LENGTH;
         }
 
-        if (keyalg != NULL) {
+        if (keyalg) {
             genctx = set_keygen_ctx(keyalg, &pkey_type, &newkey,
                                     &keyalgstr, gen_eng);
-            if (genctx == NULL)
+            if (!genctx)
                 goto end;
         }
 
@@ -481,14 +487,14 @@ int req_main(int argc, char **argv)
             goto end;
         }
 
-        if (genctx == NULL) {
+        if (!genctx) {
             genctx = set_keygen_ctx(NULL, &pkey_type, &newkey,
                                     &keyalgstr, gen_eng);
             if (!genctx)
                 goto end;
         }
 
-        if (pkeyopts != NULL) {
+        if (pkeyopts) {
             char *genopt;
             for (i = 0; i < sk_OPENSSL_STRING_num(pkeyopts); i++) {
                 genopt = sk_OPENSSL_STRING_value(pkeyopts, i);
@@ -517,6 +523,8 @@ int req_main(int argc, char **argv)
 
         EVP_PKEY_CTX_free(genctx);
         genctx = NULL;
+
+        app_RAND_write_file(randfile);
 
         if (keyout == NULL) {
             keyout = NCONF_get_string(req_conf, SECTION, KEYFILE);
@@ -603,9 +611,9 @@ int req_main(int argc, char **argv)
                 goto end;
 
             /* Set version to V3 */
-            if (extensions != NULL && !X509_set_version(x509ss, 2))
+            if (extensions && !X509_set_version(x509ss, 2))
                 goto end;
-            if (serial != NULL) {
+            if (serial) {
                 if (!X509_set_serialNumber(x509ss, serial))
                     goto end;
             } else {
@@ -630,21 +638,12 @@ int req_main(int argc, char **argv)
             X509V3_set_nconf(&ext_ctx, req_conf);
 
             /* Add extensions */
-            if (extensions != NULL && !X509V3_EXT_add_nconf(req_conf,
-                                                            &ext_ctx, extensions,
-                                                            x509ss)) {
+            if (extensions && !X509V3_EXT_add_nconf(req_conf,
+                                                    &ext_ctx, extensions,
+                                                    x509ss)) {
                 BIO_printf(bio_err, "Error Loading extension section %s\n",
                            extensions);
                 goto end;
-            }
-
-            /* If a pre-cert was requested, we need to add a poison extension */
-            if (precert) {
-                if (X509_add1_ext_i2d(x509ss, NID_ct_precert_poison, NULL, 1, 0)
-                    != 1) {
-                    BIO_printf(bio_err, "Error adding poison extension\n");
-                    goto end;
-                }
             }
 
             i = do_X509_sign(x509ss, pkey, digest, sigopts);
@@ -661,9 +660,9 @@ int req_main(int argc, char **argv)
             X509V3_set_nconf(&ext_ctx, req_conf);
 
             /* Add extensions */
-            if (req_exts != NULL
-                && !X509V3_EXT_REQ_add_nconf(req_conf, &ext_ctx,
-                                             req_exts, req)) {
+            if (req_exts && !X509V3_EXT_REQ_add_nconf(req_conf,
+                                                      &ext_ctx, req_exts,
+                                                      req)) {
                 BIO_printf(bio_err, "Error Loading extension section %s\n",
                            req_exts);
                 goto end;
@@ -685,7 +684,7 @@ int req_main(int argc, char **argv)
         if (verbose) {
             BIO_printf(bio_err, "Modifying Request's Subject\n");
             print_name(bio_err, "old subject=",
-                       X509_REQ_get_subject_name(req), get_nameopt());
+                       X509_REQ_get_subject_name(req), nmflag);
         }
 
         if (build_subject(req, subj, chtype, multirdn) == 0) {
@@ -696,7 +695,7 @@ int req_main(int argc, char **argv)
 
         if (verbose) {
             print_name(bio_err, "new subject=",
-                       X509_REQ_get_subject_name(req), get_nameopt());
+                       X509_REQ_get_subject_name(req), nmflag);
         }
     }
 
@@ -716,9 +715,8 @@ int req_main(int argc, char **argv)
         } else if (i == 0) {
             BIO_printf(bio_err, "verify failure\n");
             ERR_print_errors(bio_err);
-        } else {                 /* if (i > 0) */
+        } else                  /* if (i > 0) */
             BIO_printf(bio_err, "verify OK\n");
-        }
     }
 
     if (noout && !text && !modulus && !subject && !pubkey) {
@@ -746,18 +744,18 @@ int req_main(int argc, char **argv)
 
     if (text) {
         if (x509)
-            X509_print_ex(out, x509ss, get_nameopt(), reqflag);
+            X509_print_ex(out, x509ss, nmflag, reqflag);
         else
-            X509_REQ_print_ex(out, req, get_nameopt(), reqflag);
+            X509_REQ_print_ex(out, req, nmflag, reqflag);
     }
 
     if (subject) {
         if (x509)
             print_name(out, "subject=", X509_get_subject_name(x509ss),
-                       get_nameopt());
+                       nmflag);
         else
             print_name(out, "subject=", X509_REQ_get_subject_name(req),
-                       get_nameopt());
+                       nmflag);
     }
 
     if (modulus) {
@@ -829,7 +827,7 @@ int req_main(int argc, char **argv)
         OPENSSL_free(passin);
     if (passout != nofree_passout)
         OPENSSL_free(passout);
-    return ret;
+    return (ret);
 }
 
 static int make_REQ(X509_REQ *req, EVP_PKEY *pkey, char *subj, int multirdn,
@@ -889,7 +887,7 @@ static int make_REQ(X509_REQ *req, EVP_PKEY *pkey, char *subj, int multirdn,
 
     ret = 1;
  err:
-    return ret;
+    return (ret);
 }
 
 /*
@@ -945,8 +943,7 @@ static int prompt_info(X509_REQ *req,
 
     if (sk_CONF_VALUE_num(dn_sk)) {
         i = -1;
- start:
-        for ( ; ; ) {
+ start:for (;;) {
             i++;
             if (sk_CONF_VALUE_num(dn_sk) <= i)
                 break;
@@ -971,36 +968,35 @@ static int prompt_info(X509_REQ *req,
             if (*type == '+') {
                 mval = -1;
                 type++;
-            } else {
+            } else
                 mval = 0;
-            }
             /* If OBJ not recognised ignore it */
             if ((nid = OBJ_txt2nid(type)) == NID_undef)
                 goto start;
-            if (!join(buf, sizeof(buf), v->name, "_default", "Name"))
+            if (BIO_snprintf(buf, sizeof buf, "%s_default", v->name)
+                >= (int)sizeof(buf)) {
+                BIO_printf(bio_err, "Name '%s' too long\n", v->name);
                 return 0;
+            }
+
             if ((def = NCONF_get_string(req_conf, dn_sect, buf)) == NULL) {
                 ERR_clear_error();
                 def = "";
             }
 
-            if (!join(buf, sizeof(buf), v->name, "_value", "Name"))
-                return 0;
+            BIO_snprintf(buf, sizeof buf, "%s_value", v->name);
             if ((value = NCONF_get_string(req_conf, dn_sect, buf)) == NULL) {
                 ERR_clear_error();
                 value = NULL;
             }
 
-            if (!join(buf, sizeof(buf), v->name, "_min", "Name"))
-                return 0;
+            BIO_snprintf(buf, sizeof buf, "%s_min", v->name);
             if (!NCONF_get_number(req_conf, dn_sect, buf, &n_min)) {
                 ERR_clear_error();
                 n_min = -1;
             }
 
-
-            if (!join(buf, sizeof(buf), v->name, "_max", "Name"))
-                return 0;
+            BIO_snprintf(buf, sizeof buf, "%s_max", v->name);
             if (!NCONF_get_number(req_conf, dn_sect, buf, &n_max)) {
                 ERR_clear_error();
                 n_max = -1;
@@ -1026,8 +1022,7 @@ static int prompt_info(X509_REQ *req,
             }
 
             i = -1;
- start2:
-            for ( ; ; ) {
+ start2:   for (;;) {
                 i++;
                 if ((attr_sk == NULL) || (sk_CONF_VALUE_num(attr_sk) <= i))
                     break;
@@ -1037,31 +1032,32 @@ static int prompt_info(X509_REQ *req,
                 if ((nid = OBJ_txt2nid(type)) == NID_undef)
                     goto start2;
 
-                if (!join(buf, sizeof(buf), type, "_default", "Name"))
+                if (BIO_snprintf(buf, sizeof buf, "%s_default", type)
+                    >= (int)sizeof(buf)) {
+                    BIO_printf(bio_err, "Name '%s' too long\n", v->name);
                     return 0;
+                }
+
                 if ((def = NCONF_get_string(req_conf, attr_sect, buf))
                     == NULL) {
                     ERR_clear_error();
                     def = "";
                 }
 
-                if (!join(buf, sizeof(buf), type, "_value", "Name"))
-                    return 0;
+                BIO_snprintf(buf, sizeof buf, "%s_value", type);
                 if ((value = NCONF_get_string(req_conf, attr_sect, buf))
                     == NULL) {
                     ERR_clear_error();
                     value = NULL;
                 }
 
-                if (!join(buf, sizeof(buf), type,"_min", "Name"))
-                    return 0;
+                BIO_snprintf(buf, sizeof buf, "%s_min", type);
                 if (!NCONF_get_number(req_conf, attr_sect, buf, &n_min)) {
                     ERR_clear_error();
                     n_min = -1;
                 }
 
-                if (!join(buf, sizeof(buf), type, "_max", "Name"))
-                    return 0;
+                BIO_snprintf(buf, sizeof buf, "%s_max", type);
                 if (!NCONF_get_number(req_conf, attr_sect, buf, &n_max)) {
                     ERR_clear_error();
                     n_max = -1;
@@ -1124,9 +1120,8 @@ static int auto_info(X509_REQ *req, STACK_OF(CONF_VALUE) *dn_sk,
         if (plus_char) {
             type++;
             mval = -1;
-        } else {
+        } else
             mval = 0;
-        }
         if (!X509_NAME_add_entry_by_txt(subj, type, chtype,
                                         (unsigned char *)v->value, -1, -1,
                                         mval))
@@ -1160,8 +1155,8 @@ static int add_DN_object(X509_NAME *n, char *text, const char *def,
         BIO_printf(bio_err, "%s [%s]:", text, def);
     (void)BIO_flush(bio_err);
     if (value != NULL) {
-        if (!join(buf, sizeof(buf), value, "\n", "DN value"))
-            return 0;
+        OPENSSL_strlcpy(buf, value, sizeof buf);
+        OPENSSL_strlcat(buf, "\n", sizeof buf);
         BIO_printf(bio_err, "%s\n", value);
     } else {
         buf[0] = '\0';
@@ -1175,20 +1170,19 @@ static int add_DN_object(X509_NAME *n, char *text, const char *def,
     }
 
     if (buf[0] == '\0')
-        return 0;
-    if (buf[0] == '\n') {
+        return (0);
+    else if (buf[0] == '\n') {
         if ((def == NULL) || (def[0] == '\0'))
-            return 1;
-        if (!join(buf, sizeof(buf), def, "\n", "DN default"))
-            return 0;
-    } else if ((buf[0] == '.') && (buf[1] == '\n')) {
-        return 1;
-    }
+            return (1);
+        OPENSSL_strlcpy(buf, def, sizeof buf);
+        OPENSSL_strlcat(buf, "\n", sizeof buf);
+    } else if ((buf[0] == '.') && (buf[1] == '\n'))
+        return (1);
 
     i = strlen(buf);
     if (buf[i - 1] != '\n') {
         BIO_printf(bio_err, "weird input :-(\n");
-        return 0;
+        return (0);
     }
     buf[--i] = '\0';
 #ifdef CHARSET_EBCDIC
@@ -1205,7 +1199,7 @@ static int add_DN_object(X509_NAME *n, char *text, const char *def,
         goto err;
     ret = 1;
  err:
-    return ret;
+    return (ret);
 }
 
 static int add_attribute_object(X509_REQ *req, char *text, const char *def,
@@ -1220,8 +1214,8 @@ static int add_attribute_object(X509_REQ *req, char *text, const char *def,
         BIO_printf(bio_err, "%s [%s]:", text, def);
     (void)BIO_flush(bio_err);
     if (value != NULL) {
-        if (!join(buf, sizeof(buf), value, "\n", "Attribute value"))
-            return 0;
+        OPENSSL_strlcpy(buf, value, sizeof buf);
+        OPENSSL_strlcat(buf, "\n", sizeof buf);
         BIO_printf(bio_err, "%s\n", value);
     } else {
         buf[0] = '\0';
@@ -1235,20 +1229,19 @@ static int add_attribute_object(X509_REQ *req, char *text, const char *def,
     }
 
     if (buf[0] == '\0')
-        return 0;
-    if (buf[0] == '\n') {
+        return (0);
+    else if (buf[0] == '\n') {
         if ((def == NULL) || (def[0] == '\0'))
-            return 1;
-        if (!join(buf, sizeof(buf), def, "\n", "Attribute default"))
-            return 0;
-    } else if ((buf[0] == '.') && (buf[1] == '\n')) {
-        return 1;
-    }
+            return (1);
+        OPENSSL_strlcpy(buf, def, sizeof buf);
+        OPENSSL_strlcat(buf, "\n", sizeof buf);
+    } else if ((buf[0] == '.') && (buf[1] == '\n'))
+        return (1);
 
     i = strlen(buf);
     if (buf[i - 1] != '\n') {
         BIO_printf(bio_err, "weird input :-(\n");
-        return 0;
+        return (0);
     }
     buf[--i] = '\0';
 #ifdef CHARSET_EBCDIC
@@ -1267,9 +1260,9 @@ static int add_attribute_object(X509_REQ *req, char *text, const char *def,
         goto err;
     }
 
-    return 1;
+    return (1);
  err:
-    return 0;
+    return (0);
 }
 
 static int req_check_len(int len, int n_min, int n_max)
@@ -1278,47 +1271,28 @@ static int req_check_len(int len, int n_min, int n_max)
         BIO_printf(bio_err,
                    "string is too short, it needs to be at least %d bytes long\n",
                    n_min);
-        return 0;
+        return (0);
     }
     if ((n_max >= 0) && (len > n_max)) {
         BIO_printf(bio_err,
                    "string is too long, it needs to be no more than %d bytes long\n",
                    n_max);
-        return 0;
+        return (0);
     }
-    return 1;
+    return (1);
 }
 
 /* Check if the end of a string matches 'end' */
 static int check_end(const char *str, const char *end)
 {
-    size_t elen, slen;
+    int elen, slen;
     const char *tmp;
-
     elen = strlen(end);
     slen = strlen(str);
     if (elen > slen)
         return 1;
     tmp = str + slen - elen;
     return strcmp(tmp, end);
-}
-
-/*
- * Merge the two strings together into the result buffer checking for
- * overflow and producing an error message if there is.
- */
-static int join(char buf[], size_t buf_size, const char *name,
-                const char *tail, const char *desc)
-{
-    const size_t name_len = strlen(name), tail_len = strlen(tail);
-
-    if (name_len + tail_len + 1 > buf_size) {
-        BIO_printf(bio_err, "%s '%s' too long\n", desc, name);
-        return 0;
-    }
-    memcpy(buf, name, name_len);
-    memcpy(buf + name_len, tail, tail_len + 1);
-    return 1;
 }
 
 static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
@@ -1338,15 +1312,15 @@ static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
         *pkey_type = EVP_PKEY_RSA;
         keylen = atol(gstr);
         *pkeylen = keylen;
-    } else if (strncmp(gstr, "param:", 6) == 0) {
+    } else if (strncmp(gstr, "param:", 6) == 0)
         paramfile = gstr + 6;
-    } else {
+    else {
         const char *p = strchr(gstr, ':');
         int len;
         ENGINE *tmpeng;
         const EVP_PKEY_ASN1_METHOD *ameth;
 
-        if (p != NULL)
+        if (p)
             len = p - gstr;
         else
             len = strlen(gstr);
@@ -1357,7 +1331,7 @@ static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
 
         ameth = EVP_PKEY_asn1_find_str(&tmpeng, gstr, len);
 
-        if (ameth == NULL) {
+        if (!ameth) {
             BIO_printf(bio_err, "Unknown algorithm %.*s\n", len, gstr);
             return NULL;
         }
@@ -1367,31 +1341,28 @@ static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
         ENGINE_finish(tmpeng);
 #endif
         if (*pkey_type == EVP_PKEY_RSA) {
-            if (p != NULL) {
+            if (p) {
                 keylen = atol(p + 1);
                 *pkeylen = keylen;
-            } else {
+            } else
                 keylen = *pkeylen;
-            }
-        } else if (p != NULL) {
+        } else if (p)
             paramfile = p + 1;
-        }
     }
 
-    if (paramfile != NULL) {
+    if (paramfile) {
         pbio = BIO_new_file(paramfile, "r");
-        if (pbio == NULL) {
+        if (!pbio) {
             BIO_printf(bio_err, "Can't open parameter file %s\n", paramfile);
             return NULL;
         }
         param = PEM_read_bio_Parameters(pbio, NULL);
 
-        if (param == NULL) {
+        if (!param) {
             X509 *x;
-
             (void)BIO_reset(pbio);
             x = PEM_read_bio_X509(pbio, NULL, NULL, NULL);
-            if (x != NULL) {
+            if (x) {
                 param = X509_get_pubkey(x);
                 X509_free(x);
             }
@@ -1399,26 +1370,25 @@ static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
 
         BIO_free(pbio);
 
-        if (param == NULL) {
+        if (!param) {
             BIO_printf(bio_err, "Error reading parameter file %s\n", paramfile);
             return NULL;
         }
-        if (*pkey_type == -1) {
+        if (*pkey_type == -1)
             *pkey_type = EVP_PKEY_id(param);
-        } else if (*pkey_type != EVP_PKEY_base_id(param)) {
+        else if (*pkey_type != EVP_PKEY_base_id(param)) {
             BIO_printf(bio_err, "Key Type does not match parameters\n");
             EVP_PKEY_free(param);
             return NULL;
         }
     }
 
-    if (palgnam != NULL) {
+    if (palgnam) {
         const EVP_PKEY_ASN1_METHOD *ameth;
         ENGINE *tmpeng;
         const char *anam;
-
         ameth = EVP_PKEY_asn1_find(&tmpeng, *pkey_type);
-        if (ameth == NULL) {
+        if (!ameth) {
             BIO_puts(bio_err, "Internal error: can't find key algorithm\n");
             return NULL;
         }
@@ -1429,13 +1399,12 @@ static EVP_PKEY_CTX *set_keygen_ctx(const char *gstr,
 #endif
     }
 
-    if (param != NULL) {
+    if (param) {
         gctx = EVP_PKEY_CTX_new(param, keygen_engine);
         *pkeylen = EVP_PKEY_bits(param);
         EVP_PKEY_free(param);
-    } else {
+    } else
         gctx = EVP_PKEY_CTX_new_id(*pkey_type, keygen_engine);
-    }
 
     if (gctx == NULL) {
         BIO_puts(bio_err, "Error allocating keygen context\n");
